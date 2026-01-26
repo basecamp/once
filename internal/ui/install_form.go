@@ -84,7 +84,6 @@ func (m InstallForm) Update(msg tea.Msg) (InstallForm, tea.Cmd) {
 		var cmd tea.Cmd
 		m.imageRefInput, cmd = m.imageRefInput.Update(msg)
 		cmds = append(cmds, cmd)
-		m.updateHostnamePlaceholder()
 	case fieldHostname:
 		var cmd tea.Cmd
 		m.hostnameInput, cmd = m.hostnameInput.Update(msg)
@@ -187,6 +186,7 @@ func (m *InstallForm) blurCurrent() {
 	switch m.focused {
 	case fieldImageRef:
 		m.imageRefInput.Blur()
+		m.updateHostnamePlaceholder()
 	case fieldHostname:
 		m.hostnameInput.Blur()
 	}
