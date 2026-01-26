@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +24,7 @@ func TestDockerDeployment(t *testing.T) {
 	defer ns.Teardown(ctx, true)
 
 	require.NoError(t, ns.EnsureNetwork(ctx))
-	require.NoError(t, ns.Proxy().Boot(ctx, docker.ProxySettings{HTTPPort: 8080, HTTPSPort: 8443}))
+	require.NoError(t, ns.Proxy().Boot(ctx, getProxyPorts(t)))
 
 	app := ns.AddApplication(docker.ApplicationSettings{
 		Name:  "campfire",
@@ -42,7 +43,7 @@ func TestRestoreState(t *testing.T) {
 
 	require.NoError(t, ns1.EnsureNetwork(ctx))
 
-	proxySettings := docker.ProxySettings{HTTPPort: 9080, HTTPSPort: 9443}
+	proxySettings := getProxyPorts(t)
 	require.NoError(t, ns1.Proxy().Boot(ctx, proxySettings))
 
 	app := ns1.AddApplication(docker.ApplicationSettings{
@@ -71,7 +72,7 @@ func TestVolumePersistence(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, ns1.EnsureNetwork(ctx))
-	require.NoError(t, ns1.Proxy().Boot(ctx, docker.ProxySettings{HTTPPort: 7080, HTTPSPort: 7443}))
+	require.NoError(t, ns1.Proxy().Boot(ctx, getProxyPorts(t)))
 
 	testFile := "/home/kamal-proxy/.config/kamal-proxy/test-persistence.txt"
 	require.NoError(t, ns1.Proxy().Exec(ctx, []string{"sh", "-c", "echo 'hello' > " + testFile}))
@@ -82,7 +83,7 @@ func TestVolumePersistence(t *testing.T) {
 	defer ns2.Teardown(ctx, true)
 
 	require.NoError(t, ns2.EnsureNetwork(ctx))
-	require.NoError(t, ns2.Proxy().Boot(ctx, docker.ProxySettings{HTTPPort: 7080, HTTPSPort: 7443}))
+	require.NoError(t, ns2.Proxy().Boot(ctx, getProxyPorts(t)))
 	require.NoError(t, ns2.Proxy().Exec(ctx, []string{"test", "-f", testFile}), "test file should exist after reboot")
 }
 
@@ -113,7 +114,7 @@ func TestGaplessDeployment(t *testing.T) {
 	defer ns.Teardown(ctx, true)
 
 	require.NoError(t, ns.EnsureNetwork(ctx))
-	require.NoError(t, ns.Proxy().Boot(ctx, docker.ProxySettings{HTTPPort: 6080, HTTPSPort: 6443}))
+	require.NoError(t, ns.Proxy().Boot(ctx, getProxyPorts(t)))
 
 	app := ns.AddApplication(docker.ApplicationSettings{
 		Name:  "gapless",
@@ -160,7 +161,7 @@ func TestLargeLabelData(t *testing.T) {
 	defer ns.Teardown(ctx, true)
 
 	require.NoError(t, ns.EnsureNetwork(ctx))
-	require.NoError(t, ns.Proxy().Boot(ctx, docker.ProxySettings{HTTPPort: 5080, HTTPSPort: 5443}))
+	require.NoError(t, ns.Proxy().Boot(ctx, getProxyPorts(t)))
 
 	app := ns.AddApplication(docker.ApplicationSettings{
 		Name:  "largelabel",
@@ -188,7 +189,7 @@ func TestStartStop(t *testing.T) {
 	defer ns.Teardown(ctx, true)
 
 	require.NoError(t, ns.EnsureNetwork(ctx))
-	require.NoError(t, ns.Proxy().Boot(ctx, docker.ProxySettings{HTTPPort: 3080, HTTPSPort: 3443}))
+	require.NoError(t, ns.Proxy().Boot(ctx, getProxyPorts(t)))
 
 	app := ns.AddApplication(docker.ApplicationSettings{
 		Name:  "startstop",
@@ -221,7 +222,7 @@ func TestLongAppName(t *testing.T) {
 	defer ns.Teardown(ctx, true)
 
 	require.NoError(t, ns.EnsureNetwork(ctx))
-	require.NoError(t, ns.Proxy().Boot(ctx, docker.ProxySettings{HTTPPort: 4080, HTTPSPort: 4443}))
+	require.NoError(t, ns.Proxy().Boot(ctx, getProxyPorts(t)))
 
 	app := ns.AddApplication(docker.ApplicationSettings{
 		Name:  longName,
@@ -238,6 +239,23 @@ func TestLongAppName(t *testing.T) {
 }
 
 // Helpers
+
+func getFreePort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+	return listener.Addr().(*net.TCPAddr).Port
+}
+
+func getProxyPorts(t *testing.T) docker.ProxySettings {
+	t.Helper()
+	return docker.ProxySettings{
+		HTTPPort:    getFreePort(t),
+		HTTPSPort:   getFreePort(t),
+		MetricsPort: getFreePort(t),
+	}
+}
 
 func assertContainerRunning(t *testing.T, ctx context.Context, name string, expectRunning bool) {
 	t.Helper()
