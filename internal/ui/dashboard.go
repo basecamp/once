@@ -30,27 +30,29 @@ var chartColors = struct {
 }
 
 type dashboardKeyMap struct {
-	Upgrade key.Binding
-	NewApp  key.Binding
-	PrevApp key.Binding
-	NextApp key.Binding
-	Quit    key.Binding
+	Settings key.Binding
+	Upgrade  key.Binding
+	NewApp   key.Binding
+	PrevApp  key.Binding
+	NextApp  key.Binding
+	Quit     key.Binding
 }
 
 func (k dashboardKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.PrevApp, k.NextApp, k.NewApp, k.Upgrade, k.Quit}
+	return []key.Binding{k.PrevApp, k.NextApp, k.Settings, k.NewApp, k.Upgrade, k.Quit}
 }
 
 func (k dashboardKeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{{k.PrevApp, k.NextApp, k.NewApp, k.Upgrade, k.Quit}}
+	return [][]key.Binding{{k.PrevApp, k.NextApp, k.Settings, k.NewApp, k.Upgrade, k.Quit}}
 }
 
 var dashboardKeys = dashboardKeyMap{
-	Upgrade: key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "upgrade")),
-	NewApp:  key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new app")),
-	PrevApp: key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "prev app")),
-	NextApp: key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "next app")),
-	Quit:    key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "quit")),
+	Settings: key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "settings")),
+	Upgrade:  key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "upgrade")),
+	NewApp:   key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new app")),
+	PrevApp:  key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "prev app")),
+	NextApp:  key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "next app")),
+	Quit:     key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "quit")),
 }
 
 type Dashboard struct {
@@ -170,6 +172,9 @@ func (m Dashboard) Update(msg tea.Msg) (Component, tea.Cmd) {
 		}
 		if key.Matches(msg, dashboardKeys.NewApp) {
 			return m, func() tea.Msg { return navigateToInstallMsg{} }
+		}
+		if key.Matches(msg, dashboardKeys.Settings) {
+			return m, func() tea.Msg { return navigateToSettingsMsg{app: m.app} }
 		}
 		if key.Matches(msg, dashboardKeys.Upgrade) && !m.upgrading {
 			m.upgrading = true
