@@ -37,7 +37,7 @@ func (s ApplicationSettings) Marshal() string {
 }
 
 func (s ApplicationSettings) TLSEnabled() bool {
-	return s.Host != "" && !s.DisableTLS && !isLocalhost(s.Host)
+	return s.Host != "" && !s.DisableTLS && !IsLocalhost(s.Host)
 }
 
 func (s ApplicationSettings) URL() string {
@@ -278,7 +278,7 @@ func (a *Application) removeContainersExcept(ctx context.Context, keep string) e
 
 // Helpers
 
-func isLocalhost(host string) bool {
+func IsLocalhost(host string) bool {
 	return host == "localhost" || strings.HasSuffix(host, ".localhost")
 }
 

@@ -12,7 +12,8 @@ import (
 type settingsFormField int
 
 const (
-	settingsFieldHostname settingsFormField = iota
+	settingsFieldImage settingsFormField = iota
+	settingsFieldHostname
 	settingsFieldTLS
 	settingsFieldSaveButton
 	settingsFieldCancelButton
@@ -20,6 +21,7 @@ const (
 )
 
 type SettingsFormSubmitMsg struct {
+	Image      string
 	Hostname   string
 	TLSEnabled bool
 }
@@ -29,22 +31,30 @@ type SettingsFormCancelMsg struct{}
 type SettingsForm struct {
 	width, height int
 	focused       settingsFormField
+	imageInput    textinput.Model
 	hostnameInput textinput.Model
 	tlsEnabled    bool
 }
 
 func NewSettingsForm(settings docker.ApplicationSettings) SettingsForm {
+	image := textinput.New()
+	image.Placeholder = "user/repo:tag"
+	image.Prompt = ""
+	image.CharLimit = 256
+	image.SetValue(settings.Image)
+	image.Focus()
+
 	hostname := textinput.New()
 	hostname.Placeholder = "app.example.com"
 	hostname.Prompt = ""
 	hostname.CharLimit = 256
 	hostname.SetValue(settings.Host)
-	hostname.Focus()
 
 	return SettingsForm{
-		focused:       settingsFieldHostname,
+		focused:       settingsFieldImage,
+		imageInput:    image,
 		hostnameInput: hostname,
-		tlsEnabled:    !settings.DisableTLS,
+		tlsEnabled:    settings.TLSEnabled(),
 	}
 }
 
@@ -59,6 +69,7 @@ func (m SettingsForm) Update(msg tea.Msg) (SettingsForm, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		inputWidth := min(m.width-4, 60)
+		m.imageInput.SetWidth(inputWidth)
 		m.hostnameInput.SetWidth(inputWidth)
 
 	case tea.KeyMsg:
@@ -69,33 +80,51 @@ func (m SettingsForm) Update(msg tea.Msg) (SettingsForm, tea.Cmd) {
 			return m.focusPrev()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 			return m.handleEnter()
-		case key.Matches(msg, key.NewBinding(key.WithKeys(" "))) && m.focused == settingsFieldTLS:
-			m.tlsEnabled = !m.tlsEnabled
+		case key.Matches(msg, key.NewBinding(key.WithKeys("space"))) && m.focused == settingsFieldTLS:
+			if m.tlsAvailable() {
+				m.tlsEnabled = !m.tlsEnabled
+			}
 			return m, nil
 		}
 	}
 
-	if m.focused == settingsFieldHostname {
+	switch m.focused {
+	case settingsFieldImage:
+		var cmd tea.Cmd
+		m.imageInput, cmd = m.imageInput.Update(msg)
+		cmds = append(cmds, cmd)
+	case settingsFieldHostname:
 		var cmd tea.Cmd
 		m.hostnameInput, cmd = m.hostnameInput.Update(msg)
 		cmds = append(cmds, cmd)
+		if !m.tlsAvailable() {
+			m.tlsEnabled = false
+		}
 	}
 
 	return m, tea.Batch(cmds...)
 }
 
 func (m SettingsForm) View() string {
+	imageLabel := Styles.Label.Render("Image")
+	imageField := Styles.Focus(Styles.Input, m.focused == settingsFieldImage).
+		Render(m.imageInput.View())
+
 	hostnameLabel := Styles.Label.Render("Hostname")
 	hostnameField := Styles.Focus(Styles.Input, m.focused == settingsFieldHostname).
 		Render(m.hostnameInput.View())
 
 	tlsLabel := Styles.Label.Render("TLS")
-	tlsCheckbox := "[x]"
-	if !m.tlsEnabled {
-		tlsCheckbox = "[ ]"
+	var tlsText string
+	if !m.tlsAvailable() {
+		tlsText = "Not available for localhost"
+	} else if m.tlsEnabled {
+		tlsText = "[x] Enabled"
+	} else {
+		tlsText = "[ ] Enabled"
 	}
 	tlsField := Styles.Focus(Styles.Input, m.focused == settingsFieldTLS).
-		Render(tlsCheckbox + " Enabled")
+		Render(tlsText)
 
 	saveButton := Styles.Focus(Styles.ButtonPrimary, m.focused == settingsFieldSaveButton).
 		Render("Save")
@@ -105,6 +134,8 @@ func (m SettingsForm) View() string {
 	buttons := lipgloss.JoinHorizontal(lipgloss.Center, saveButton, cancelButton)
 
 	form := lipgloss.JoinVertical(lipgloss.Left,
+		imageLabel,
+		imageField,
 		hostnameLabel,
 		hostnameField,
 		tlsLabel,
@@ -131,14 +162,20 @@ func (m SettingsForm) focusPrev() (SettingsForm, tea.Cmd) {
 }
 
 func (m *SettingsForm) blurCurrent() {
-	if m.focused == settingsFieldHostname {
+	switch m.focused {
+	case settingsFieldImage:
+		m.imageInput.Blur()
+	case settingsFieldHostname:
 		m.hostnameInput.Blur()
 	}
 }
 
 func (m SettingsForm) focusCurrent() (SettingsForm, tea.Cmd) {
 	var cmd tea.Cmd
-	if m.focused == settingsFieldHostname {
+	switch m.focused {
+	case settingsFieldImage:
+		cmd = m.imageInput.Focus()
+	case settingsFieldHostname:
 		cmd = m.hostnameInput.Focus()
 	}
 	return m, cmd
@@ -146,11 +183,12 @@ func (m SettingsForm) focusCurrent() (SettingsForm, tea.Cmd) {
 
 func (m SettingsForm) handleEnter() (SettingsForm, tea.Cmd) {
 	switch m.focused {
-	case settingsFieldHostname, settingsFieldTLS:
+	case settingsFieldImage, settingsFieldHostname, settingsFieldTLS:
 		return m.focusNext()
 	case settingsFieldSaveButton:
 		return m, func() tea.Msg {
 			return SettingsFormSubmitMsg{
+				Image:      m.imageInput.Value(),
 				Hostname:   m.hostnameInput.Value(),
 				TLSEnabled: m.tlsEnabled,
 			}
@@ -159,4 +197,8 @@ func (m SettingsForm) handleEnter() (SettingsForm, tea.Cmd) {
 		return m, func() tea.Msg { return SettingsFormCancelMsg{} }
 	}
 	return m, nil
+}
+
+func (m SettingsForm) tlsAvailable() bool {
+	return !docker.IsLocalhost(m.hostnameInput.Value())
 }
