@@ -183,6 +183,9 @@ func (m *Logs) rebuildContent() {
 	m.lastFilterText = m.filterText
 
 	if len(lines) == 0 {
+		if !m.streamer.Ready() {
+			return
+		}
 		if m.filterText != "" {
 			m.viewport.SetContent(m.centeredMessage("No logs match the filter"))
 		} else {

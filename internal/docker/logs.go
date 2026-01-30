@@ -43,6 +43,7 @@ type LogStreamer struct {
 	head    int
 	count   int
 	version uint64
+	ready   bool
 	cancel  context.CancelFunc
 }
 
@@ -118,6 +119,12 @@ func (s *LogStreamer) Version() uint64 {
 	return s.version
 }
 
+func (s *LogStreamer) Ready() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ready
+}
+
 // Private
 
 func (s *LogStreamer) runStream(ctx context.Context, containerName string) {
@@ -150,6 +157,10 @@ func (s *LogStreamer) streamLogs(ctx context.Context, containerName string) {
 		return
 	}
 	defer reader.Close()
+
+	s.mu.Lock()
+	s.ready = true
+	s.mu.Unlock()
 
 	if isTTY {
 		s.scanLines(reader, false)
