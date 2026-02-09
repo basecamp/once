@@ -156,7 +156,7 @@ func (c Chart) View() string {
 
 	// Title line (centered over inner width)
 	if c.title != "" {
-		titleLine := lipgloss.NewStyle().Width(innerWidth).Align(lipgloss.Center).Render(c.title)
+		titleLine := Styles.CenteredLine(innerWidth, c.title)
 		content = append(content, titleLine)
 	}
 
@@ -207,7 +207,7 @@ func (c Chart) View() string {
 	// Wrap in rounded border
 	borderStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#6272a4"))
+		BorderForeground(Colors.Border)
 
 	return borderStyle.Render(strings.Join(content, "\n"))
 }

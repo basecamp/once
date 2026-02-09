@@ -18,7 +18,7 @@ func TerminalBackgroundColor() color.Color {
 	bg, err := lipgloss.BackgroundColor(os.Stdin, os.Stdout)
 	if err != nil {
 		// Fall back to black if detection fails
-		return lipgloss.Color("#000000")
+		return Colors.Background
 	}
 	return bg
 }

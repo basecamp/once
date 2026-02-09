@@ -96,7 +96,7 @@ func (m Settings) Update(msg tea.Msg) (Component, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.help.SetWidth(m.width)
-		m.progress = NewProgressBusy(m.width, lipgloss.Color("#6272a4"))
+		m.progress = NewProgressBusy(m.width, Colors.Border)
 		if m.state == settingsStateForm {
 			m.section, _ = m.section.Update(msg)
 		}
@@ -118,7 +118,7 @@ func (m Settings) Update(msg tea.Msg) (Component, tea.Cmd) {
 		}
 		m.state = settingsStateDeploying
 		m.app.Settings = msg.Settings
-		m.progress = NewProgressBusy(m.width, lipgloss.Color("#6272a4"))
+		m.progress = NewProgressBusy(m.width, Colors.Border)
 		return m, tea.Batch(m.progress.Init(), m.runDeploy())
 
 	case settingsDeployFinishedMsg:
@@ -155,7 +155,7 @@ func (m Settings) View() string {
 	var helpLine string
 	if m.state == settingsStateForm {
 		helpView := m.help.View(settingsKeys)
-		helpLine = lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(helpView)
+		helpLine = Styles.HelpLine(m.width, helpView)
 	}
 
 	titleBoxHeight := lipgloss.Height(titleBox)

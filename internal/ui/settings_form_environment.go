@@ -58,7 +58,7 @@ func (m SettingsFormEnvironment) Update(msg tea.Msg) (SettingsSection, tea.Cmd) 
 
 func (m SettingsFormEnvironment) View() string {
 	placeholder := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#6272a4")).
+		Foreground(Colors.Border).
 		Italic(true).
 		Render("(Environment variable editing coming soon)")
 

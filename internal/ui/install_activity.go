@@ -128,31 +128,19 @@ func (m InstallActivity) View() string {
 		status = "Installation failed: " + m.err.Error()
 	}
 
-	statusLine := lipgloss.NewStyle().
-		Width(m.width).
-		Align(lipgloss.Center).
-		Render(status)
+	statusLine := Styles.CenteredLine(m.width, status)
 
 	var progressView string
 	switch m.stage {
 	case stagePreparing, stageStarting:
-		progressView = lipgloss.NewStyle().
-			Width(m.width).
-			Align(lipgloss.Center).
-			Render(m.progressBusy.View())
+		progressView = Styles.CenteredLine(m.width, m.progressBusy.View())
 	case stageDownloading:
-		progressView = lipgloss.NewStyle().
-			Width(m.width).
-			Align(lipgloss.Center).
-			Render(m.progressBar.View())
+		progressView = Styles.CenteredLine(m.width, m.progressBar.View())
 	}
 
 	var buttonView string
 	if m.stage == stageFinished || m.stage == stageFailed {
-		focusedColor := lipgloss.Color("#FFA500")
-		buttonStyle := lipgloss.NewStyle().
-			Padding(0, 2).
-			Border(lipgloss.RoundedBorder())
+		buttonStyle := Styles.Button
 
 		var label string
 		if m.stage == stageFinished {
@@ -162,7 +150,7 @@ func (m InstallActivity) View() string {
 		}
 
 		if m.focused {
-			buttonStyle = buttonStyle.BorderForeground(focusedColor)
+			buttonStyle = buttonStyle.BorderForeground(Colors.Focused)
 		} else {
 			buttonStyle = buttonStyle.BorderForeground(Colors.Primary)
 		}

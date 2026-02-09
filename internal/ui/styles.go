@@ -14,6 +14,11 @@ type colors struct {
 	TextDark   color.Color
 	Focused    color.Color
 	Border     color.Color
+	Success    color.Color
+	Warning    color.Color
+	Error      color.Color
+	Info       color.Color
+	Muted      color.Color
 }
 
 var Colors = colors{
@@ -24,6 +29,11 @@ var Colors = colors{
 	TextDark:   lipgloss.Color("#000000"),
 	Focused:    lipgloss.Color("#FFA500"),
 	Border:     lipgloss.Color("#6272a4"),
+	Success:    lipgloss.Color("#50fa7b"),
+	Warning:    lipgloss.Color("#f1fa8c"),
+	Error:      lipgloss.Color("#ff5555"),
+	Info:       lipgloss.Color("#8be9fd"),
+	Muted:      lipgloss.Color("#bd93f9"),
 }
 
 type styles struct {
@@ -83,6 +93,14 @@ func (s styles) TitleBox(width int, title string, extra ...string) string {
 		BorderForeground(Colors.Border).
 		Width(width).
 		Render(content)
+}
+
+func (s styles) HelpLine(width int, content string) string {
+	return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(content)
+}
+
+func (s styles) CenteredLine(width int, content string) string {
+	return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(content)
 }
 
 func CenteredLayer(content string, containerWidth, containerHeight int) *lipgloss.Layer {

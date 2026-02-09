@@ -116,7 +116,7 @@ func (m Logs) View() string {
 	titleBox := m.renderTitleBox()
 
 	helpView := m.help.View(logsKeys)
-	helpLine := lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(helpView)
+	helpLine := Styles.HelpLine(m.width, helpView)
 
 	titleHeight := lipgloss.Height(titleBox)
 	helpHeight := lipgloss.Height(helpLine)

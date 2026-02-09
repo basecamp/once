@@ -23,10 +23,10 @@ var chartColors = struct {
 	Blue   lipgloss.Style
 	Purple lipgloss.Style
 }{
-	Green:  lipgloss.NewStyle().Foreground(lipgloss.Color("#50fa7b")),
-	Red:    lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5555")),
-	Blue:   lipgloss.NewStyle().Foreground(lipgloss.Color("#8be9fd")),
-	Purple: lipgloss.NewStyle().Foreground(lipgloss.Color("#bd93f9")),
+	Green:  lipgloss.NewStyle().Foreground(Colors.Success),
+	Red:    lipgloss.NewStyle().Foreground(Colors.Error),
+	Blue:   lipgloss.NewStyle().Foreground(Colors.Info),
+	Purple: lipgloss.NewStyle().Foreground(Colors.Muted),
 }
 
 type dashboardKeyMap struct {
@@ -97,7 +97,7 @@ func NewDashboard(ns *docker.Namespace, app *docker.Application, scraper *metric
 
 	footer := NewContent(func(width, height int) string {
 		helpView := state.help.View(dashboardKeys)
-		helpLine := lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(helpView)
+		helpLine := Styles.HelpLine(width, helpView)
 		if state.upgrading {
 			return state.progress.View() + "\n" + helpLine
 		}
@@ -187,7 +187,7 @@ func (m Dashboard) Update(msg tea.Msg) (Component, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.state.progress = NewProgressBusy(m.width, lipgloss.Color("#6272a4"))
+		m.state.progress = NewProgressBusy(m.width, Colors.Border)
 		m.state.help.SetWidth(m.width)
 
 		updated, _ := m.layout.Update(ComponentSizeMsg{Width: m.width, Height: m.height})
@@ -202,7 +202,7 @@ func (m Dashboard) Update(msg tea.Msg) (Component, tea.Cmd) {
 
 	case ComponentSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.state.progress = NewProgressBusy(m.width, lipgloss.Color("#6272a4"))
+		m.state.progress = NewProgressBusy(m.width, Colors.Border)
 		m.state.help.SetWidth(m.width)
 
 		updated, _ := m.layout.Update(msg)
@@ -235,7 +235,7 @@ func (m Dashboard) Update(msg tea.Msg) (Component, tea.Cmd) {
 		}
 		if key.Matches(msg, dashboardKeys.Upgrade) && !m.state.upgrading {
 			m.state.upgrading = true
-			m.state.progress = NewProgressBusy(m.width, lipgloss.Color("#6272a4"))
+			m.state.progress = NewProgressBusy(m.width, Colors.Border)
 			return m, tea.Batch(m.state.progress.Init(), m.runUpgrade())
 		}
 		if key.Matches(msg, dashboardKeys.Logs) {
@@ -305,13 +305,13 @@ func renderInfoBox(width int, app *docker.Application, upgrading bool) string {
 	var statusColor color.Color
 	if upgrading {
 		status = "upgrading..."
-		statusColor = lipgloss.Color("#f1fa8c")
+		statusColor = Colors.Warning
 	} else if app.Running {
 		status = "running"
-		statusColor = lipgloss.Color("#50fa7b")
+		statusColor = Colors.Success
 	} else {
 		status = "stopped"
-		statusColor = lipgloss.Color("#ff5555")
+		statusColor = Colors.Error
 	}
 
 	stateStyle := lipgloss.NewStyle().Foreground(statusColor)

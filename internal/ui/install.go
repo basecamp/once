@@ -105,7 +105,7 @@ func (m Install) View() string {
 	var helpLine string
 	if m.state == installStateForm {
 		helpView := m.help.View(installKeys)
-		helpLine = lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(helpView)
+		helpLine = Styles.HelpLine(m.width, helpView)
 	}
 
 	titleBoxHeight := lipgloss.Height(titleBox)
