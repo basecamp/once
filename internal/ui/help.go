@@ -33,37 +33,47 @@ func (h Help) View(k help.KeyMap) string {
 		return ""
 	}
 
-	var b strings.Builder
-	var totalWidth int
 	separator := h.model.Styles.ShortSeparator.Inline(true).Render(h.model.ShortSeparator)
+	sepWidth := lipgloss.Width(separator)
 
+	type helpItem struct {
+		str   string
+		width int
+	}
+	var items []helpItem
 	for i, kb := range bindings {
 		if !kb.Enabled() {
 			continue
 		}
-
-		var sep string
-		if totalWidth > 0 {
-			sep = separator
-		}
-
-		item := h.model.Styles.ShortKey.Inline(true).Render(kb.Help().Key) + " " +
+		rendered := h.model.Styles.ShortKey.Inline(true).Render(kb.Help().Key) + " " +
 			h.model.Styles.ShortDesc.Inline(true).Render(kb.Help().Desc)
-		str := sep + zone.Mark(h.zoneID(i), item)
-		w := lipgloss.Width(str)
-
-		if tail, ok := h.shouldAddItem(totalWidth, w); !ok {
-			if tail != "" {
-				b.WriteString(tail)
-			}
-			break
-		}
-
-		totalWidth += w
-		b.WriteString(str)
+		str := zone.Mark(h.zoneID(i), rendered)
+		items = append(items, helpItem{str: str, width: lipgloss.Width(str)})
 	}
 
-	return b.String()
+	maxWidth := h.model.Width()
+	var lines []string
+	var line strings.Builder
+	lineWidth := 0
+
+	for _, it := range items {
+		if lineWidth > 0 && maxWidth > 0 && lineWidth+sepWidth+it.width > maxWidth {
+			lines = append(lines, line.String())
+			line.Reset()
+			lineWidth = 0
+		}
+		if lineWidth > 0 {
+			line.WriteString(separator)
+			lineWidth += sepWidth
+		}
+		line.WriteString(it.str)
+		lineWidth += it.width
+	}
+	if line.Len() > 0 {
+		lines = append(lines, line.String())
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func (h Help) Update(msg tea.MouseClickMsg, k help.KeyMap) tea.Cmd {
@@ -87,17 +97,6 @@ func (h Help) Update(msg tea.MouseClickMsg, k help.KeyMap) tea.Cmd {
 
 func (h Help) zoneID(i int) string {
 	return fmt.Sprintf("%shelp_%d", h.prefix, i)
-}
-
-func (h Help) shouldAddItem(totalWidth, width int) (tail string, ok bool) {
-	w := h.model.Width()
-	if w > 0 && totalWidth+width > w {
-		tail = " " + h.model.Styles.Ellipsis.Inline(true).Render(h.model.Ellipsis)
-		if totalWidth+lipgloss.Width(tail) < w {
-			return tail, false
-		}
-	}
-	return "", true
 }
 
 // Helpers
