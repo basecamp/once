@@ -136,7 +136,7 @@ func TestScraperScrapeFindsContainers(t *testing.T) {
 	// Wait for both streams to receive stats
 	<-delivered
 	<-delivered
-	s.Scrape(context.Background())
+	scrapeUntil(t, s, "myapp", 50.0)
 
 	samples := s.Fetch("myapp", 1)
 	require.Len(t, samples, 1)
@@ -177,7 +177,7 @@ func TestScraperRecordsZerosForStoppedApp(t *testing.T) {
 	s := newTestScraper(client)
 	s.Scrape(context.Background())
 	<-delivered
-	s.Scrape(context.Background())
+	scrapeUntil(t, s, "myapp", 50.0)
 
 	samples := s.Fetch("myapp", 1)
 	require.Len(t, samples, 1)
@@ -210,7 +210,7 @@ func TestScraperReconnectsOnContainerChange(t *testing.T) {
 	s := newTestScraper(client)
 	s.Scrape(context.Background())
 	<-delivered
-	s.Scrape(context.Background())
+	scrapeUntil(t, s, "myapp", 50.0)
 
 	samples := s.Fetch("myapp", 1)
 	require.Len(t, samples, 1)
@@ -226,7 +226,7 @@ func TestScraperReconnectsOnContainerChange(t *testing.T) {
 
 	s.Scrape(context.Background())
 	<-delivered
-	s.Scrape(context.Background())
+	scrapeUntil(t, s, "myapp", 75.0)
 
 	samples = s.Fetch("myapp", 1)
 	require.Len(t, samples, 1)
@@ -269,6 +269,18 @@ func TestCalculateCPUPercentZeroDelta(t *testing.T) {
 }
 
 // Helpers
+
+// scrapeUntil polls Scrape + Fetch until the expected CPU value appears.
+// The delivered channel signals that the stream goroutine has started reading,
+// but data.latest may not be updated yet, so we need to poll.
+func scrapeUntil(t *testing.T, s *Scraper, appName string, expectedCPU float64) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		s.Scrape(context.Background())
+		samples := s.Fetch(appName, 1)
+		return len(samples) > 0 && samples[0].CPUPercent == expectedCPU
+	}, time.Second, 10*time.Millisecond)
+}
 
 func makeStats(cpuPercent float64, memoryBytes uint64) container.StatsResponse {
 	// Reverse-engineer CPU values to get desired percentage with 4 CPUs
