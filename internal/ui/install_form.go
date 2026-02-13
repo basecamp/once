@@ -58,6 +58,7 @@ func (m InstallForm) Update(msg tea.Msg) (InstallForm, tea.Cmd) {
 	}
 
 	if prev == 0 && m.form.Focused() != 0 {
+		m.expandImageAlias()
 		m.updateHostnamePlaceholder()
 	}
 
@@ -77,6 +78,18 @@ func (m InstallForm) Hostname() string {
 }
 
 // Private
+
+var imageAliases = map[string]string{
+	"campfire": "ghcr.io/basecamp/once-campfire",
+	"fizzy":    "ghcr.io/basecamp/fizzy:main",
+}
+
+func (m *InstallForm) expandImageAlias() {
+	field := m.form.TextField(installImageRefField)
+	if expanded, ok := imageAliases[field.Value()]; ok {
+		field.SetValue(expanded)
+	}
+}
 
 func (m *InstallForm) updateHostnamePlaceholder() {
 	appName := docker.NameFromImageRef(m.form.TextField(installImageRefField).Value())
