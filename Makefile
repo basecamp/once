@@ -2,15 +2,17 @@
 
 PLATFORMS = linux darwin
 ARCHITECTURES = amd64 arm64
+VERSION := $(shell git describe --tags --always)
+LDFLAGS := -ldflags "-X 'github.com/basecamp/once/internal/version.Version=$(VERSION)'"
 
 build:
-	CGO_ENABLED=0 go build -trimpath -o bin/ ./cmd/...
+	CGO_ENABLED=0 go build -trimpath $(LDFLAGS) -o bin/ ./cmd/...
 
 build-all:
 	@for os in $(PLATFORMS); do \
 		for arch in $(ARCHITECTURES); do \
 			echo "Building for $$os/$$arch..."; \
-			CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -o bin/$$os-$$arch/ ./cmd/...; \
+			CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath $(LDFLAGS) -o bin/$$os-$$arch/ ./cmd/...; \
 		done; \
 	done
 

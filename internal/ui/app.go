@@ -12,6 +12,7 @@ import (
 
 	"github.com/basecamp/once/internal/docker"
 	"github.com/basecamp/once/internal/metrics"
+	"github.com/basecamp/once/internal/version"
 )
 
 type KeyMap struct {
@@ -201,7 +202,7 @@ func (m App) View() tea.View {
 }
 
 func Run(ns *docker.Namespace, installImageRef string) error {
-	slog.Info("Starting ONCE UI")
+	slog.Info("Starting ONCE UI", "version", version.Version)
 	defer func() { slog.Info("Stopping ONCE UI") }()
 
 	zone.NewGlobal()
