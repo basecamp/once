@@ -5,41 +5,31 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/textinput"
-	"charm.land/bubbles/v2/viewport"
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/basecamp/gliff/components"
+	"github.com/basecamp/gliff/tui"
 
 	"github.com/basecamp/once/internal/docker"
 )
 
-type logsKeyMap struct {
-	Filter key.Binding
-	Back   key.Binding
-}
-
-func (k logsKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Filter, k.Back}
-}
-
-func (k logsKeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{{k.Filter, k.Back}}
-}
-
-var logsKeys = logsKeyMap{
-	Filter: key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
-	Back:   key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+var logsKeys = struct {
+	Filter KeyBinding
+	Back   KeyBinding
+}{
+	Filter: NewKeyBinding(RuneKey('/')).WithHelp("/", "filter"),
+	Back:   NewKeyBinding(Key(tui.KeyEscape)).WithHelp("esc", "back"),
 }
 
 type Logs struct {
 	namespace     *docker.Namespace
 	app           *docker.Application
 	streamer      *docker.LogStreamer
-	viewport      viewport.Model
-	filterInput   textinput.Model
+	viewport      *components.Viewport
+	filterInput   *components.TextField
 	filterActive  bool
 	filterText    string
+	filterEnabled bool
 	width, height int
 	help          Help
 
@@ -50,30 +40,29 @@ type Logs struct {
 
 type logsTickMsg struct{}
 
-func NewLogs(ns *docker.Namespace, app *docker.Application) Logs {
+func NewLogs(ns *docker.Namespace, app *docker.Application) *Logs {
 	streamer := docker.NewLogStreamer(ns, docker.LogStreamerSettings{})
 
-	filterInput := textinput.New()
-	filterInput.Placeholder = "Filter logs"
-	filterInput.Prompt = ""
-	filterInput.CharLimit = 256
+	filterInput := components.NewTextField()
+	filterInput.SetPlaceholder("Filter logs")
+	filterInput.SetCharLimit(256)
 
-	vp := viewport.New()
-	vp.SoftWrap = true
-	vp.MouseWheelEnabled = true
+	vp := components.NewViewport()
+	vp.SetSoftWrap(true)
 
-	return Logs{
-		namespace:   ns,
-		app:         app,
-		streamer:    streamer,
-		viewport:    vp,
-		filterInput: filterInput,
-		help:        NewHelp(),
-		wasAtBottom: true,
+	return &Logs{
+		namespace:     ns,
+		app:           app,
+		streamer:      streamer,
+		viewport:      vp,
+		filterInput:   filterInput,
+		filterEnabled: true,
+		help:          NewHelp(),
+		wasAtBottom:   true,
 	}
 }
 
-func (m Logs) Init() tea.Cmd {
+func (m *Logs) Init() tui.Cmd {
 	containerName, err := m.app.ContainerName(context.Background())
 	if err == nil {
 		m.streamer.Start(context.Background(), containerName)
@@ -81,22 +70,22 @@ func (m Logs) Init() tea.Cmd {
 	return m.scheduleNextLogsTick()
 }
 
-func (m Logs) Update(msg tea.Msg) (Component, tea.Cmd) {
-	var cmds []tea.Cmd
+func (m *Logs) Update(msg tui.Msg) tui.Cmd {
+	var cmds []tui.Cmd
 
 	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
+	case tui.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.help.SetWidth(m.width)
 		m.updateViewportSize()
 		m.rebuildContent()
 
-	case tea.MouseClickMsg:
-		if cmd := m.help.Update(msg, logsKeys); cmd != nil {
-			return m, cmd
+	case tui.MouseMsg:
+		if cmd := m.help.Update(msg); cmd != nil {
+			return cmd
 		}
 
-	case tea.KeyMsg:
+	case tui.KeyMsg:
 		if m.filterActive {
 			return m.handleFilterKey(msg)
 		}
@@ -113,19 +102,24 @@ func (m Logs) Update(msg tea.Msg) (Component, tea.Cmd) {
 		}
 	}
 
-	return m, tea.Batch(cmds...)
+	return tui.Batch(cmds...)
 }
 
-func (m Logs) View() string {
+func (m *Logs) Render() string {
 	titleLine := Styles.TitleRule(m.width, m.app.Settings.Host, "logs")
 
-	helpView := m.help.View(logsKeys)
+	helpBindings := []KeyBinding{logsKeys.Back}
+	if m.filterEnabled {
+		helpBindings = append([]KeyBinding{logsKeys.Filter}, helpBindings...)
+	}
+	helpView := m.help.Render(helpBindings)
 	helpLine := Styles.HelpLine(m.width, helpView)
 
 	header := titleLine + "\n"
 	if m.filterActive || m.filterText != "" {
-		m.filterInput.SetWidth(m.width - 2)
-		header += " " + m.filterInput.View() + "\n"
+		filterWidth := m.width - 2
+		m.filterInput.SetWidth(filterWidth)
+		header += " " + m.filterInput.Render() + "\n"
 	} else {
 		header += "\n"
 	}
@@ -138,49 +132,47 @@ func (m Logs) View() string {
 		m.viewport.SetHeight(viewportHeight)
 	}
 
-	return header + m.viewport.View() + "\n" + helpLine
+	return header + m.viewport.Render() + "\n" + helpLine
 }
 
 // Private
 
-func (m Logs) scheduleNextLogsTick() tea.Cmd {
-	return tea.Every(100*time.Millisecond, func(time.Time) tea.Msg { return logsTickMsg{} })
+func (m *Logs) scheduleNextLogsTick() tui.Cmd {
+	return tui.Every(100*time.Millisecond, func(time.Time) tui.Msg { return logsTickMsg{} })
 }
 
-func (m Logs) handleFilterKey(msg tea.KeyMsg) (Component, tea.Cmd) {
-	if key.Matches(msg, key.NewBinding(key.WithKeys("esc"))) {
+func (m *Logs) handleFilterKey(msg tui.KeyMsg) tui.Cmd {
+	if msg.Type == tui.KeyEscape {
 		m.filterActive = false
-		logsKeys.Filter.SetEnabled(true)
+		m.filterEnabled = true
 		m.filterText = ""
 		m.filterInput.SetValue("")
 		m.filterInput.Blur()
 		m.rebuildContent()
-		return m, nil
+		return nil
 	}
 
-	var cmd tea.Cmd
-	m.filterInput, cmd = m.filterInput.Update(msg)
+	cmd := m.filterInput.Update(msg)
 	m.filterText = m.filterInput.Value()
 	m.rebuildContent()
-	return m, cmd
+	return cmd
 }
 
-func (m Logs) handleNormalKey(msg tea.KeyMsg) (Component, tea.Cmd) {
+func (m *Logs) handleNormalKey(msg tui.KeyMsg) tui.Cmd {
 	switch {
-	case key.Matches(msg, logsKeys.Back):
+	case logsKeys.Back.Matches(msg):
 		m.streamer.Stop()
-		return m, func() tea.Msg { return navigateToDashboardMsg{appName: m.app.Settings.Name} }
+		return func() tui.Msg { return navigateToDashboardMsg{appName: m.app.Settings.Name} }
 
-	case key.Matches(msg, logsKeys.Filter):
+	case logsKeys.Filter.Matches(msg) && m.filterEnabled:
 		m.filterActive = true
-		logsKeys.Filter.SetEnabled(false)
-		return m, m.filterInput.Focus()
+		m.filterEnabled = false
+		return m.filterInput.Focus()
 	}
 
 	m.wasAtBottom = m.viewport.AtBottom()
-	var cmd tea.Cmd
-	m.viewport, cmd = m.viewport.Update(msg)
-	return m, cmd
+	m.viewport.Update(msg)
+	return nil
 }
 
 func (m *Logs) checkForUpdates() {

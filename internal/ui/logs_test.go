@@ -4,24 +4,24 @@ import (
 	"strings"
 	"testing"
 
-	"charm.land/bubbles/v2/textinput"
-	"charm.land/bubbles/v2/viewport"
-	tea "charm.land/bubbletea/v2"
+	"github.com/basecamp/gliff/components"
+	"github.com/basecamp/gliff/tui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/basecamp/once/internal/docker"
 )
 
-func newTestLogs() Logs {
-	return Logs{
+func newTestLogs() *Logs {
+	return &Logs{
 		app: &docker.Application{
 			Settings: docker.ApplicationSettings{Name: "testapp"},
 		},
-		streamer:    newTestLogStreamerForUI(),
-		viewport:    viewport.New(),
-		filterInput: textinput.New(),
-		help:        NewHelp(),
+		streamer:      newTestLogStreamerForUI(),
+		viewport:      components.NewViewport(),
+		filterInput:   components.NewTextField(),
+		filterEnabled: true,
+		help:          NewHelp(),
 	}
 }
 
@@ -33,10 +33,9 @@ func TestLogsFilterActivation(t *testing.T) {
 	m := newTestLogs()
 	m.filterActive = false
 
-	updated, _ := m.Update(tea.KeyPressMsg{Code: '/'})
-	logs := updated.(Logs)
+	m.Update(runeMsg('/'))
 
-	assert.True(t, logs.filterActive)
+	assert.True(t, m.filterActive)
 }
 
 func TestLogsFilterAppliesOnKeypress(t *testing.T) {
@@ -44,12 +43,9 @@ func TestLogsFilterAppliesOnKeypress(t *testing.T) {
 	m.filterActive = true
 	m.filterInput.SetValue("err")
 
-	// Type another character
-	updated, _ := m.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
-	logs := updated.(Logs)
+	m.Update(runeMsg('o'))
 
-	// Filter should be applied immediately (filter text updated to match input)
-	assert.Equal(t, logs.filterInput.Value(), logs.filterText)
+	assert.Equal(t, m.filterInput.Value(), m.filterText)
 }
 
 func TestLogsFilterClearedOnEscape(t *testing.T) {
@@ -58,19 +54,18 @@ func TestLogsFilterClearedOnEscape(t *testing.T) {
 	m.filterText = "error"
 	m.filterInput.SetValue("error")
 
-	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	logs := updated.(Logs)
+	m.Update(keyMsg(tui.KeyEscape, 0))
 
-	assert.False(t, logs.filterActive)
-	assert.Equal(t, "", logs.filterText)
-	assert.Equal(t, "", logs.filterInput.Value())
+	assert.False(t, m.filterActive)
+	assert.Equal(t, "", m.filterText)
+	assert.Equal(t, "", m.filterInput.Value())
 }
 
 func TestLogsBackNavigation(t *testing.T) {
 	m := newTestLogs()
 	m.filterActive = false
 
-	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	cmd := m.Update(keyMsg(tui.KeyEscape, 0))
 	require.NotNil(t, cmd)
 
 	msg := cmd()

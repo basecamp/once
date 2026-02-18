@@ -5,6 +5,8 @@ ARCHITECTURES = amd64 arm64
 VERSION := $(shell git describe --tags --always)
 LDFLAGS := -ldflags "-X 'github.com/basecamp/once/internal/version.Version=$(VERSION)'"
 
+TEST_RELEASE_TAG = v0.0.1-test
+
 build:
 	CGO_ENABLED=0 go build -trimpath $(LDFLAGS) -o bin/ ./cmd/...
 
@@ -37,8 +39,6 @@ dist: build-all
 		done; \
 	done
 	cd dist && sha256sum once-* > checksums.txt
-
-TEST_RELEASE_TAG = v0.0.1-test
 
 test-release:
 	-gh release delete $(TEST_RELEASE_TAG) --yes --cleanup-tag

@@ -1,28 +1,14 @@
 package ui
 
 import (
-	"charm.land/bubbles/v2/key"
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/basecamp/gliff/tui"
 
 	"github.com/basecamp/once/internal/docker"
 )
 
-type settingsMenuCloseKeyMap struct {
-	Close key.Binding
-}
-
-func (k settingsMenuCloseKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Close}
-}
-
-func (k settingsMenuCloseKeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{{k.Close}}
-}
-
-var settingsMenuCloseKeys = settingsMenuCloseKeyMap{
-	Close: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close")),
-}
+var settingsMenuCloseKey = NewKeyBinding(Key(tui.KeyEscape)).WithHelp("esc", "close")
 
 type SettingsMenuCloseMsg struct{}
 
@@ -40,44 +26,42 @@ type SettingsMenu struct {
 func NewSettingsMenu(app *docker.Application) SettingsMenu {
 	return SettingsMenu{
 		app: app,
-		menu: NewMenu("settings",
-			MenuItem{Label: "Application", Key: int(SettingsSectionApplication), Shortcut: key.NewBinding(key.WithKeys("a"))},
-			MenuItem{Label: "Email", Key: int(SettingsSectionEmail), Shortcut: key.NewBinding(key.WithKeys("e"))},
-			MenuItem{Label: "Environment", Key: int(SettingsSectionEnvironment), Shortcut: key.NewBinding(key.WithKeys("v"))},
-			MenuItem{Label: "Resources", Key: int(SettingsSectionResources), Shortcut: key.NewBinding(key.WithKeys("r"))},
-			MenuItem{Label: "Updates", Key: int(SettingsSectionUpdates), Shortcut: key.NewBinding(key.WithKeys("u"))},
-			MenuItem{Label: "Backups", Key: int(SettingsSectionBackups), Shortcut: key.NewBinding(key.WithKeys("b"))},
+		menu: NewMenu(
+			MenuItem{Label: "Application", Key: int(SettingsSectionApplication), Shortcut: NewKeyBinding(RuneKey('a')).WithHelp("a", "")},
+			MenuItem{Label: "Email", Key: int(SettingsSectionEmail), Shortcut: NewKeyBinding(RuneKey('e')).WithHelp("e", "")},
+			MenuItem{Label: "Environment", Key: int(SettingsSectionEnvironment), Shortcut: NewKeyBinding(RuneKey('v')).WithHelp("v", "")},
+			MenuItem{Label: "Resources", Key: int(SettingsSectionResources), Shortcut: NewKeyBinding(RuneKey('r')).WithHelp("r", "")},
+			MenuItem{Label: "Updates", Key: int(SettingsSectionUpdates), Shortcut: NewKeyBinding(RuneKey('u')).WithHelp("u", "")},
+			MenuItem{Label: "Backups", Key: int(SettingsSectionBackups), Shortcut: NewKeyBinding(RuneKey('b')).WithHelp("b", "")},
 		),
 		help: NewHelp(),
 	}
 }
 
-func (m SettingsMenu) Init() tea.Cmd {
+func (m *SettingsMenu) Init() tui.Cmd {
 	return nil
 }
 
-func (m SettingsMenu) Update(msg tea.Msg) (SettingsMenu, tea.Cmd) {
+func (m *SettingsMenu) Update(msg tui.Msg) tui.Cmd {
 	switch msg := msg.(type) {
-	case tea.MouseClickMsg:
-		if cmd := m.help.Update(msg, settingsMenuCloseKeys); cmd != nil {
-			return m, cmd
+	case tui.MouseMsg:
+		if cmd := m.help.Update(msg); cmd != nil {
+			return cmd
 		}
 
-	case tea.KeyMsg:
-		if key.Matches(msg, settingsMenuCloseKeys.Close) {
-			return m, func() tea.Msg { return SettingsMenuCloseMsg{} }
+	case tui.KeyMsg:
+		if settingsMenuCloseKey.Matches(msg) {
+			return func() tui.Msg { return SettingsMenuCloseMsg{} }
 		}
 
 	case MenuSelectMsg:
-		return m, m.selectSection(SettingsSectionType(msg.Key))
+		return m.selectSection(SettingsSectionType(msg.Key))
 	}
 
-	var cmd tea.Cmd
-	m.menu, cmd = m.menu.Update(msg)
-	return m, cmd
+	return m.menu.Update(msg)
 }
 
-func (m SettingsMenu) View() string {
+func (m *SettingsMenu) Render() string {
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(Colors.Border).
@@ -90,9 +74,9 @@ func (m SettingsMenu) View() string {
 
 	title := titleStyle.Render("Settings")
 
-	menuView := m.menu.View()
+	menuView := m.menu.Render()
 
-	helpView := m.help.View(settingsMenuCloseKeys)
+	helpView := m.help.Render([]KeyBinding{settingsMenuCloseKey})
 	menuWidth := lipgloss.Width(menuView)
 	helpLine := lipgloss.NewStyle().MarginTop(1).Width(menuWidth).Align(lipgloss.Center).Render(helpView)
 
@@ -107,8 +91,8 @@ func (m SettingsMenu) View() string {
 
 // Private
 
-func (m SettingsMenu) selectSection(section SettingsSectionType) tea.Cmd {
-	return func() tea.Msg {
+func (m *SettingsMenu) selectSection(section SettingsSectionType) tui.Cmd {
+	return func() tui.Msg {
 		return SettingsMenuSelectMsg{app: m.app, section: section}
 	}
 }

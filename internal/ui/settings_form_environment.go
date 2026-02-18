@@ -1,50 +1,49 @@
 package ui
 
 import (
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/basecamp/gliff/tui"
 
 	"github.com/basecamp/once/internal/docker"
 )
 
 type SettingsFormEnvironment struct {
 	settings docker.ApplicationSettings
-	form     Form
+	form     *Form
 }
 
-func NewSettingsFormEnvironment(settings docker.ApplicationSettings) SettingsFormEnvironment {
-	return SettingsFormEnvironment{
+func NewSettingsFormEnvironment(settings docker.ApplicationSettings) *SettingsFormEnvironment {
+	m := &SettingsFormEnvironment{
 		settings: settings,
 		form:     NewForm("Done"),
 	}
+
+	m.form.OnSubmit(func() tui.Cmd {
+		return func() tui.Msg { return SettingsSectionCancelMsg{} }
+	})
+	m.form.OnCancel(func() tui.Cmd {
+		return func() tui.Msg { return SettingsSectionCancelMsg{} }
+	})
+
+	return m
 }
 
-func (m SettingsFormEnvironment) Title() string {
+func (m *SettingsFormEnvironment) Title() string {
 	return "Environment"
 }
 
-func (m SettingsFormEnvironment) Init() tea.Cmd {
-	return nil
+func (m *SettingsFormEnvironment) Init() tui.Cmd {
+	return m.form.Init()
 }
 
-func (m SettingsFormEnvironment) Update(msg tea.Msg) (SettingsSection, tea.Cmd) {
-	var (
-		action FormAction
-		cmd    tea.Cmd
-	)
-	m.form, action, cmd = m.form.Update(msg)
-
-	switch action {
-	case FormSubmitted, FormCancelled:
-		return m, func() tea.Msg { return SettingsSectionCancelMsg{} }
-	}
-
-	return m, cmd
+func (m *SettingsFormEnvironment) Update(msg tui.Msg) tui.Cmd {
+	return m.form.Update(msg)
 }
 
-func (m SettingsFormEnvironment) StatusLine() string { return "" }
+func (m *SettingsFormEnvironment) StatusLine() string { return "" }
 
-func (m SettingsFormEnvironment) View() string {
+func (m *SettingsFormEnvironment) Render() string {
 	placeholder := lipgloss.NewStyle().
 		Foreground(Colors.Border).
 		Italic(true).
@@ -53,6 +52,6 @@ func (m SettingsFormEnvironment) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left,
 		placeholder,
 		"",
-		m.form.View(),
+		m.form.Render(),
 	)
 }

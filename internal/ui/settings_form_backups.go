@@ -3,7 +3,7 @@ package ui
 import (
 	"context"
 
-	tea "charm.land/bubbletea/v2"
+	"github.com/basecamp/gliff/tui"
 
 	"github.com/basecamp/once/internal/docker"
 )
@@ -16,66 +16,60 @@ const (
 type SettingsFormBackups struct {
 	app        *docker.Application
 	settings   docker.ApplicationSettings
-	form       Form
+	form       *Form
 	lastResult *docker.OperationResult
 }
 
-func NewSettingsFormBackups(app *docker.Application, lastResult *docker.OperationResult) SettingsFormBackups {
+func NewSettingsFormBackups(app *docker.Application, lastResult *docker.OperationResult) *SettingsFormBackups {
 	pathField := NewTextField("/path/to/backups")
 	pathField.SetValue(app.Settings.Backup.Path)
 
 	autoBackField := NewCheckboxField("Automatically create backups", app.Settings.Backup.AutoBack)
 
-	form := NewForm("Done",
-		FormItem{Label: "Backup location", Field: pathField},
-		FormItem{Label: "Backups", Field: autoBackField},
-	)
-	form.SetActionButton("Run backup now", func() tea.Msg {
+	m := &SettingsFormBackups{
+		app:      app,
+		settings: app.Settings,
+		form: NewForm("Done",
+			FormItem{Label: "Backup location", Field: pathField},
+			FormItem{Label: "Backups", Field: autoBackField},
+		),
+		lastResult: lastResult,
+	}
+
+	m.form.SetActionButton("Run backup now", func() tui.Msg {
 		return settingsRunActionMsg{action: func() (string, error) {
 			return "Backup complete", runBackup(app, pathField.Value())
 		}}
 	})
+	m.form.OnSubmit(func() tui.Cmd {
+		m.settings.Backup.Path = m.form.TextField(backupsPathField).Value()
+		m.settings.Backup.AutoBack = m.form.CheckboxField(backupsAutoBackField).Checked()
+		return func() tui.Msg { return SettingsSectionSubmitMsg{Settings: m.settings} }
+	})
+	m.form.OnCancel(func() tui.Cmd {
+		return func() tui.Msg { return SettingsSectionCancelMsg{} }
+	})
 
-	return SettingsFormBackups{
-		app:        app,
-		settings:   app.Settings,
-		form:       form,
-		lastResult: lastResult,
-	}
+	return m
 }
 
-func (m SettingsFormBackups) Title() string {
+func (m *SettingsFormBackups) Title() string {
 	return "Backups"
 }
 
-func (m SettingsFormBackups) Init() tea.Cmd {
-	return nil
+func (m *SettingsFormBackups) Init() tui.Cmd {
+	return m.form.Init()
 }
 
-func (m SettingsFormBackups) Update(msg tea.Msg) (SettingsSection, tea.Cmd) {
-	var (
-		action FormAction
-		cmd    tea.Cmd
-	)
-	m.form, action, cmd = m.form.Update(msg)
-
-	switch action {
-	case FormSubmitted:
-		m.settings.Backup.Path = m.form.TextField(backupsPathField).Value()
-		m.settings.Backup.AutoBack = m.form.CheckboxField(backupsAutoBackField).Checked()
-		return m, func() tea.Msg { return SettingsSectionSubmitMsg{Settings: m.settings} }
-	case FormCancelled:
-		return m, func() tea.Msg { return SettingsSectionCancelMsg{} }
-	}
-
-	return m, cmd
+func (m *SettingsFormBackups) Update(msg tui.Msg) tui.Cmd {
+	return m.form.Update(msg)
 }
 
-func (m SettingsFormBackups) View() string {
-	return m.form.View()
+func (m *SettingsFormBackups) Render() string {
+	return m.form.Render()
 }
 
-func (m SettingsFormBackups) StatusLine() string {
+func (m *SettingsFormBackups) StatusLine() string {
 	return formatOperationStatus("backup", m.lastResult)
 }
 

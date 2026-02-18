@@ -1,57 +1,71 @@
 package ui
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 
-	"charm.land/bubbles/v2/help"
-	"charm.land/bubbles/v2/key"
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	zone "github.com/lrstanley/bubblezone/v2"
+
+	"github.com/basecamp/gliff/tui"
 )
 
 type Help struct {
-	model  help.Model
-	prefix string
+	width    int
+	bindings []KeyBinding
 }
 
 func NewHelp() Help {
-	return Help{
-		model:  help.New(),
-		prefix: zone.NewPrefix(),
-	}
+	return Help{}
 }
 
 func (h *Help) SetWidth(w int) {
-	h.model.SetWidth(w)
+	h.width = w
 }
 
-func (h Help) View(k help.KeyMap) string {
-	bindings := k.ShortHelp()
-	if len(bindings) == 0 {
-		return ""
+func (h *Help) Update(msg tui.Msg) tui.Cmd {
+	if msg, ok := msg.(tui.MouseMsg); ok {
+		if msg.Type == tui.MousePress && msg.Button == tui.MouseLeft {
+			for i, kb := range h.bindings {
+				if msg.Target == helpTarget(i) && len(kb.Keys) > 0 {
+					spec := kb.Keys[0]
+					return func() tui.Msg {
+						return tui.KeyMsg{Key: tui.Key{Type: spec.Type, Rune: spec.Rune}}
+					}
+				}
+			}
+		}
 	}
+	return nil
+}
 
-	separator := h.model.Styles.ShortSeparator.Inline(true).Render(h.model.ShortSeparator)
+func (h *Help) Render(bindings []KeyBinding) string {
+	h.bindings = bindings
+
+	keyStyle := lipgloss.NewStyle().Bold(true)
+	descStyle := lipgloss.NewStyle().Foreground(Colors.Border)
+	separator := descStyle.Render(" • ")
 	sepWidth := lipgloss.Width(separator)
 
 	type helpItem struct {
 		str   string
 		width int
-	}
-	var items []helpItem
-	for i, kb := range bindings {
-		if !kb.Enabled() {
-			continue
-		}
-		rendered := h.model.Styles.ShortKey.Inline(true).Render(kb.Help().Key) + " " +
-			h.model.Styles.ShortDesc.Inline(true).Render(kb.Help().Desc)
-		str := zone.Mark(h.zoneID(i), rendered)
-		items = append(items, helpItem{str: str, width: lipgloss.Width(str)})
+		index int
 	}
 
-	maxWidth := h.model.Width()
+	var items []helpItem
+	for i, kb := range bindings {
+		if kb.Help.Key == "" {
+			continue
+		}
+		rendered := keyStyle.Render(kb.Help.Key) + " " + descStyle.Render(kb.Help.Desc)
+		items = append(items, helpItem{str: rendered, width: lipgloss.Width(rendered), index: i})
+	}
+
+	if len(items) == 0 {
+		return ""
+	}
+
+	maxWidth := h.width
 	var lines []string
 	var line strings.Builder
 	lineWidth := 0
@@ -66,7 +80,7 @@ func (h Help) View(k help.KeyMap) string {
 			line.WriteString(separator)
 			lineWidth += sepWidth
 		}
-		line.WriteString(it.str)
+		line.WriteString(tui.WithTarget(helpTarget(it.index), it.str))
 		lineWidth += it.width
 	}
 	if line.Len() > 0 {
@@ -76,64 +90,8 @@ func (h Help) View(k help.KeyMap) string {
 	return strings.Join(lines, "\n")
 }
 
-func (h Help) Update(msg tea.MouseClickMsg, k help.KeyMap) tea.Cmd {
-	if msg.Button != tea.MouseLeft {
-		return nil
-	}
-
-	for i, kb := range k.ShortHelp() {
-		if !kb.Enabled() {
-			continue
-		}
-		if zi := zone.Get(h.zoneID(i)); zi != nil && zi.InBounds(msg) {
-			return func() tea.Msg { return keyPressFromBinding(kb) }
-		}
-	}
-
-	return nil
-}
-
-// Private
-
-func (h Help) zoneID(i int) string {
-	return fmt.Sprintf("%shelp_%d", h.prefix, i)
-}
-
 // Helpers
 
-func keyPressFromBinding(b key.Binding) tea.KeyPressMsg {
-	keys := b.Keys()
-	if len(keys) == 0 {
-		return tea.KeyPressMsg{}
-	}
-
-	k := keys[0]
-
-	switch k {
-	case "esc":
-		return tea.KeyPressMsg{Code: tea.KeyEscape}
-	case "enter":
-		return tea.KeyPressMsg{Code: tea.KeyEnter}
-	case "left":
-		return tea.KeyPressMsg{Code: tea.KeyLeft}
-	case "right":
-		return tea.KeyPressMsg{Code: tea.KeyRight}
-	case "up":
-		return tea.KeyPressMsg{Code: tea.KeyUp}
-	case "down":
-		return tea.KeyPressMsg{Code: tea.KeyDown}
-	case "tab":
-		return tea.KeyPressMsg{Code: tea.KeyTab}
-	case "space":
-		return tea.KeyPressMsg{Code: tea.KeySpace}
-	case "backspace":
-		return tea.KeyPressMsg{Code: tea.KeyBackspace}
-	}
-
-	if len(k) == 1 {
-		r := rune(k[0])
-		return tea.KeyPressMsg{Code: r, Text: k}
-	}
-
-	return tea.KeyPressMsg{}
+func helpTarget(i int) string {
+	return "help:" + strconv.Itoa(i)
 }

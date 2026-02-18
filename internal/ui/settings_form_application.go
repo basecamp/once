@@ -1,7 +1,7 @@
 package ui
 
 import (
-	tea "charm.land/bubbletea/v2"
+	"github.com/basecamp/gliff/tui"
 
 	"github.com/basecamp/once/internal/docker"
 )
@@ -14,10 +14,10 @@ const (
 
 type SettingsFormApplication struct {
 	settings docker.ApplicationSettings
-	form     Form
+	form     *Form
 }
 
-func NewSettingsFormApplication(settings docker.ApplicationSettings) SettingsFormApplication {
+func NewSettingsFormApplication(settings docker.ApplicationSettings) *SettingsFormApplication {
 	imageField := NewTextField("user/repo:tag")
 	imageField.SetValue(settings.Image)
 
@@ -32,7 +32,7 @@ func NewSettingsFormApplication(settings docker.ApplicationSettings) SettingsFor
 		return false, ""
 	})
 
-	return SettingsFormApplication{
+	m := &SettingsFormApplication{
 		settings: settings,
 		form: NewForm("Done",
 			FormItem{Label: "Image", Field: imageField},
@@ -40,38 +40,34 @@ func NewSettingsFormApplication(settings docker.ApplicationSettings) SettingsFor
 			FormItem{Label: "TLS", Field: tlsField},
 		),
 	}
-}
 
-func (m SettingsFormApplication) Title() string {
-	return "Application"
-}
-
-func (m SettingsFormApplication) Init() tea.Cmd {
-	return nil
-}
-
-func (m SettingsFormApplication) Update(msg tea.Msg) (SettingsSection, tea.Cmd) {
-	var (
-		action FormAction
-		cmd    tea.Cmd
-	)
-	m.form, action, cmd = m.form.Update(msg)
-
-	switch action {
-	case FormSubmitted:
+	m.form.OnSubmit(func() tui.Cmd {
 		m.settings.Image = m.form.TextField(appImageField).Value()
 		m.settings.Host = m.form.TextField(appHostnameField).Value()
 		m.settings.DisableTLS = !m.form.CheckboxField(appTLSField).Checked()
-		return m, func() tea.Msg { return SettingsSectionSubmitMsg{Settings: m.settings} }
-	case FormCancelled:
-		return m, func() tea.Msg { return SettingsSectionCancelMsg{} }
-	}
+		return func() tui.Msg { return SettingsSectionSubmitMsg{Settings: m.settings} }
+	})
+	m.form.OnCancel(func() tui.Cmd {
+		return func() tui.Msg { return SettingsSectionCancelMsg{} }
+	})
 
-	return m, cmd
+	return m
 }
 
-func (m SettingsFormApplication) StatusLine() string { return "" }
+func (m *SettingsFormApplication) Title() string {
+	return "Application"
+}
 
-func (m SettingsFormApplication) View() string {
-	return m.form.View()
+func (m *SettingsFormApplication) Init() tui.Cmd {
+	return m.form.Init()
+}
+
+func (m *SettingsFormApplication) Update(msg tui.Msg) tui.Cmd {
+	return m.form.Update(msg)
+}
+
+func (m *SettingsFormApplication) StatusLine() string { return "" }
+
+func (m *SettingsFormApplication) Render() string {
+	return m.form.Render()
 }

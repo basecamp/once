@@ -26,7 +26,7 @@ func (m *mockStatsClient) ContainerStats(ctx context.Context, containerID string
 	stats := m.stats[containerID]
 	data, _ := json.Marshal(stats)
 	return container.StatsResponseReader{Body: &notifyingReader{
-		Reader:   bytes.NewReader(data),
+		Reader:    bytes.NewReader(data),
 		delivered: m.delivered,
 	}}, nil
 }

@@ -61,8 +61,7 @@ var Styles = styles{
 	Input: lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(Colors.Border).
-		Padding(0, 1).
-		MarginBottom(1),
+		Padding(0, 1),
 	Button: lipgloss.NewStyle().
 		Padding(0, 2).
 		MarginRight(1).
@@ -97,6 +96,51 @@ func (s styles) HelpLine(width int, content string) string {
 
 func (s styles) CenteredLine(width int, content string) string {
 	return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(content)
+}
+
+// OverlayCenter composites fg centered on top of bg within the given dimensions.
+func OverlayCenter(bg, fg string, width, height int) string {
+	bgLines := strings.Split(bg, "\n")
+	fgLines := strings.Split(fg, "\n")
+
+	for len(bgLines) < height {
+		bgLines = append(bgLines, strings.Repeat(" ", width))
+	}
+
+	fgHeight := len(fgLines)
+	fgWidth := 0
+	for _, line := range fgLines {
+		if w := ansi.StringWidth(line); w > fgWidth {
+			fgWidth = w
+		}
+	}
+
+	topOffset := (height - fgHeight) / 2
+	leftOffset := (width - fgWidth) / 2
+
+	for i, fgLine := range fgLines {
+		bgIdx := topOffset + i
+		if bgIdx < 0 || bgIdx >= len(bgLines) {
+			continue
+		}
+
+		bgLine := bgLines[bgIdx]
+
+		left := ansi.Truncate(bgLine, leftOffset, "")
+		if w := ansi.StringWidth(left); w < leftOffset {
+			left += strings.Repeat(" ", leftOffset-w)
+		}
+
+		if w := ansi.StringWidth(fgLine); w < fgWidth {
+			fgLine += strings.Repeat(" ", fgWidth-w)
+		}
+
+		right := ansi.TruncateLeft(bgLine, leftOffset+fgWidth, "")
+
+		bgLines[bgIdx] = left + "\x1b[0m" + fgLine + "\x1b[0m" + right
+	}
+
+	return strings.Join(bgLines, "\n")
 }
 
 // WithBackground re-applies a background color after any SGR reset sequences

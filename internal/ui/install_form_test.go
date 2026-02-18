@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
+	"github.com/basecamp/gliff/tui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -11,19 +11,19 @@ import (
 func TestInstallForm_FillAndSubmit(t *testing.T) {
 	form := NewInstallForm("")
 
-	form = installTypeText(form, "nginx:latest")
+	installTypeText(form, "nginx:latest")
 	assert.Equal(t, "nginx:latest", form.ImageRef())
 
-	form = installPressEnter(form)
+	installPressEnter(form)
 	assert.Equal(t, 1, form.form.Focused())
 
-	form = installTypeText(form, "myapp.example.com")
+	installTypeText(form, "myapp.example.com")
 	assert.Equal(t, "myapp.example.com", form.Hostname())
 
-	form = installPressEnter(form)
+	installPressEnter(form)
 	assert.Equal(t, 2, form.form.Focused(), "submit button")
 
-	form, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	cmd := form.Update(keyMsg(tui.KeyEnter, 0))
 	require.NotNil(t, cmd)
 
 	msg := cmd()
@@ -37,26 +37,26 @@ func TestInstallForm_TabNavigation(t *testing.T) {
 	form := NewInstallForm("")
 	assert.Equal(t, 0, form.form.Focused())
 
-	form = installPressTab(form)
+	installPressTab(form)
 	assert.Equal(t, 1, form.form.Focused())
 
-	form = installPressTab(form)
+	installPressTab(form)
 	assert.Equal(t, 2, form.form.Focused(), "submit button")
 
-	form = installPressTab(form)
+	installPressTab(form)
 	assert.Equal(t, 3, form.form.Focused(), "cancel button")
 
-	form = installPressTab(form)
+	installPressTab(form)
 	assert.Equal(t, 0, form.form.Focused(), "wraps to first field")
 }
 
 func TestInstallForm_ShiftTabNavigation(t *testing.T) {
 	form := NewInstallForm("")
 
-	form = installPressShiftTab(form)
+	installPressShiftTab(form)
 	assert.Equal(t, 3, form.form.Focused(), "cancel button")
 
-	form = installPressShiftTab(form)
+	installPressShiftTab(form)
 	assert.Equal(t, 2, form.form.Focused(), "submit button")
 }
 
@@ -64,11 +64,11 @@ func TestInstallForm_CancelButton(t *testing.T) {
 	form := NewInstallForm("")
 
 	for range 3 {
-		form = installPressTab(form)
+		installPressTab(form)
 	}
 	assert.Equal(t, 3, form.form.Focused(), "cancel button")
 
-	_, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	cmd := form.Update(keyMsg(tui.KeyEnter, 0))
 	require.NotNil(t, cmd)
 
 	msg := cmd()
@@ -78,24 +78,20 @@ func TestInstallForm_CancelButton(t *testing.T) {
 
 // Helpers
 
-func installTypeText(form InstallForm, text string) InstallForm {
+func installTypeText(form *InstallForm, text string) {
 	for _, r := range text {
-		form, _ = form.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		form.Update(runeMsg(r))
 	}
-	return form
 }
 
-func installPressEnter(form InstallForm) InstallForm {
-	form, _ = form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	return form
+func installPressEnter(form *InstallForm) {
+	form.Update(keyMsg(tui.KeyEnter, 0))
 }
 
-func installPressTab(form InstallForm) InstallForm {
-	form, _ = form.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	return form
+func installPressTab(form *InstallForm) {
+	form.Update(keyMsg(tui.KeyTab, 0))
 }
 
-func installPressShiftTab(form InstallForm) InstallForm {
-	form, _ = form.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
-	return form
+func installPressShiftTab(form *InstallForm) {
+	form.Update(keyMsg(tui.KeyShiftTab, 0))
 }

@@ -3,7 +3,7 @@ package ui
 import (
 	"strconv"
 
-	tea "charm.land/bubbletea/v2"
+	"github.com/basecamp/gliff/tui"
 
 	"github.com/basecamp/once/internal/docker"
 )
@@ -15,10 +15,10 @@ const (
 
 type SettingsFormResources struct {
 	settings docker.ApplicationSettings
-	form     Form
+	form     *Form
 }
 
-func NewSettingsFormResources(settings docker.ApplicationSettings) SettingsFormResources {
+func NewSettingsFormResources(settings docker.ApplicationSettings) *SettingsFormResources {
 	cpuField := NewTextField("e.g. 2")
 	cpuField.SetCharLimit(10)
 	cpuField.SetDigitsOnly(true)
@@ -33,44 +33,40 @@ func NewSettingsFormResources(settings docker.ApplicationSettings) SettingsFormR
 		memoryField.SetValue(strconv.Itoa(settings.Resources.MemoryMB))
 	}
 
-	return SettingsFormResources{
+	m := &SettingsFormResources{
 		settings: settings,
 		form: NewForm("Done",
 			FormItem{Label: "CPU Limit", Field: cpuField},
 			FormItem{Label: "Memory Limit (MB)", Field: memoryField},
 		),
 	}
+
+	m.form.OnSubmit(func() tui.Cmd {
+		m.settings.Resources.CPUs, _ = strconv.Atoi(m.form.TextField(resourcesCPUField).Value())
+		m.settings.Resources.MemoryMB, _ = strconv.Atoi(m.form.TextField(resourcesMemoryField).Value())
+		return func() tui.Msg { return SettingsSectionSubmitMsg{Settings: m.settings} }
+	})
+	m.form.OnCancel(func() tui.Cmd {
+		return func() tui.Msg { return SettingsSectionCancelMsg{} }
+	})
+
+	return m
 }
 
-func (m SettingsFormResources) Title() string {
+func (m *SettingsFormResources) Title() string {
 	return "Resources"
 }
 
-func (m SettingsFormResources) Init() tea.Cmd {
-	return nil
+func (m *SettingsFormResources) Init() tui.Cmd {
+	return m.form.Init()
 }
 
-func (m SettingsFormResources) Update(msg tea.Msg) (SettingsSection, tea.Cmd) {
-	var (
-		action FormAction
-		cmd    tea.Cmd
-	)
-	m.form, action, cmd = m.form.Update(msg)
-
-	switch action {
-	case FormSubmitted:
-		m.settings.Resources.CPUs, _ = strconv.Atoi(m.form.TextField(resourcesCPUField).Value())
-		m.settings.Resources.MemoryMB, _ = strconv.Atoi(m.form.TextField(resourcesMemoryField).Value())
-		return m, func() tea.Msg { return SettingsSectionSubmitMsg{Settings: m.settings} }
-	case FormCancelled:
-		return m, func() tea.Msg { return SettingsSectionCancelMsg{} }
-	}
-
-	return m, cmd
+func (m *SettingsFormResources) Update(msg tui.Msg) tui.Cmd {
+	return m.form.Update(msg)
 }
 
-func (m SettingsFormResources) StatusLine() string { return "" }
+func (m *SettingsFormResources) StatusLine() string { return "" }
 
-func (m SettingsFormResources) View() string {
-	return m.form.View()
+func (m *SettingsFormResources) Render() string {
+	return m.form.Render()
 }

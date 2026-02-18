@@ -1,8 +1,9 @@
 package ui
 
 import (
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/basecamp/gliff/tui"
 
 	"github.com/basecamp/once/internal/docker"
 )
@@ -20,16 +21,15 @@ type InstallFormSubmitMsg struct {
 type InstallFormCancelMsg struct{}
 
 type InstallForm struct {
-	form        Form
+	form        *Form
 	lastAppName string
 	imageRef    string
 }
 
-func NewInstallForm(imageRef string) InstallForm {
+func NewInstallForm(imageRef string) *InstallForm {
 	var formItems []FormItem
 
 	if imageRef != "" {
-		// Expand alias and show static field
 		if expanded, ok := imageAliases[imageRef]; ok {
 			imageRef = expanded
 		}
@@ -60,64 +60,59 @@ func NewInstallForm(imageRef string) InstallForm {
 		Field: hostnameField,
 	})
 
-	form := InstallForm{
+	m := &InstallForm{
 		form:     NewForm("Install", formItems...),
 		imageRef: imageRef,
 	}
 
-	// If imageRef is pre-populated, set the hostname placeholder immediately
-	if imageRef != "" {
-		form.updateHostnamePlaceholder()
-	}
-
-	return form
-}
-
-func (m InstallForm) Init() tea.Cmd {
-	return nil
-}
-
-func (m InstallForm) Update(msg tea.Msg) (InstallForm, tea.Cmd) {
-	prev := m.form.Focused()
-
-	var (
-		action FormAction
-		cmd    tea.Cmd
-	)
-	m.form, action, cmd = m.form.Update(msg)
-
-	switch action {
-	case FormSubmitted:
-		return m, func() tea.Msg {
+	m.form.OnSubmit(func() tui.Cmd {
+		return func() tui.Msg {
 			return InstallFormSubmitMsg{
 				ImageRef: m.ImageRef(),
 				Hostname: m.form.TextField(installHostnameField).Value(),
 			}
 		}
-	case FormCancelled:
-		return m, func() tea.Msg { return InstallFormCancelMsg{} }
+	})
+	m.form.OnCancel(func() tui.Cmd {
+		return func() tui.Msg { return InstallFormCancelMsg{} }
+	})
+
+	if imageRef != "" {
+		m.updateHostnamePlaceholder()
 	}
+
+	return m
+}
+
+func (m *InstallForm) Init() tui.Cmd {
+	return m.form.Init()
+}
+
+func (m *InstallForm) Update(msg tui.Msg) tui.Cmd {
+	prev := m.form.Focused()
+
+	cmd := m.form.Update(msg)
 
 	if prev == 0 && m.form.Focused() != 0 && m.imageRef == "" {
 		m.expandImageAlias()
 		m.updateHostnamePlaceholder()
 	}
 
-	return m, cmd
+	return cmd
 }
 
-func (m InstallForm) View() string {
-	return m.form.View()
+func (m *InstallForm) Render() string {
+	return m.form.Render()
 }
 
-func (m InstallForm) ImageRef() string {
+func (m *InstallForm) ImageRef() string {
 	if m.imageRef != "" {
 		return m.imageRef
 	}
 	return m.form.TextField(installImageRefField).Value()
 }
 
-func (m InstallForm) Hostname() string {
+func (m *InstallForm) Hostname() string {
 	return m.form.TextField(installHostnameField).Value()
 }
 

@@ -3,7 +3,7 @@ package ui
 import (
 	"context"
 
-	tea "charm.land/bubbletea/v2"
+	"github.com/basecamp/gliff/tui"
 
 	"github.com/basecamp/once/internal/docker"
 )
@@ -13,17 +13,23 @@ const updatesAutoUpdateField = 0
 type SettingsFormUpdates struct {
 	app        *docker.Application
 	settings   docker.ApplicationSettings
-	form       Form
+	form       *Form
 	lastResult *docker.OperationResult
 }
 
-func NewSettingsFormUpdates(app *docker.Application, lastResult *docker.OperationResult) SettingsFormUpdates {
+func NewSettingsFormUpdates(app *docker.Application, lastResult *docker.OperationResult) *SettingsFormUpdates {
 	autoUpdateField := NewCheckboxField("Automatically apply updates", app.Settings.AutoUpdate)
 
-	form := NewForm("Done",
-		FormItem{Label: "Updates", Field: autoUpdateField},
-	)
-	form.SetActionButton("Check for updates", func() tea.Msg {
+	m := &SettingsFormUpdates{
+		app:      app,
+		settings: app.Settings,
+		form: NewForm("Done",
+			FormItem{Label: "Updates", Field: autoUpdateField},
+		),
+		lastResult: lastResult,
+	}
+
+	m.form.SetActionButton("Check for updates", func() tui.Msg {
 		return settingsRunActionMsg{action: func() (string, error) {
 			changed, err := app.Update(context.Background(), nil)
 			if err != nil {
@@ -35,45 +41,33 @@ func NewSettingsFormUpdates(app *docker.Application, lastResult *docker.Operatio
 			return "Update complete", nil
 		}}
 	})
+	m.form.OnSubmit(func() tui.Cmd {
+		m.settings.AutoUpdate = m.form.CheckboxField(updatesAutoUpdateField).Checked()
+		return func() tui.Msg { return SettingsSectionSubmitMsg{Settings: m.settings} }
+	})
+	m.form.OnCancel(func() tui.Cmd {
+		return func() tui.Msg { return SettingsSectionCancelMsg{} }
+	})
 
-	return SettingsFormUpdates{
-		app:        app,
-		settings:   app.Settings,
-		form:       form,
-		lastResult: lastResult,
-	}
+	return m
 }
 
-func (m SettingsFormUpdates) Title() string {
+func (m *SettingsFormUpdates) Title() string {
 	return "Updates"
 }
 
-func (m SettingsFormUpdates) Init() tea.Cmd {
-	return nil
+func (m *SettingsFormUpdates) Init() tui.Cmd {
+	return m.form.Init()
 }
 
-func (m SettingsFormUpdates) Update(msg tea.Msg) (SettingsSection, tea.Cmd) {
-	var (
-		action FormAction
-		cmd    tea.Cmd
-	)
-	m.form, action, cmd = m.form.Update(msg)
-
-	switch action {
-	case FormSubmitted:
-		m.settings.AutoUpdate = m.form.CheckboxField(updatesAutoUpdateField).Checked()
-		return m, func() tea.Msg { return SettingsSectionSubmitMsg{Settings: m.settings} }
-	case FormCancelled:
-		return m, func() tea.Msg { return SettingsSectionCancelMsg{} }
-	}
-
-	return m, cmd
+func (m *SettingsFormUpdates) Update(msg tui.Msg) tui.Cmd {
+	return m.form.Update(msg)
 }
 
-func (m SettingsFormUpdates) View() string {
-	return m.form.View()
+func (m *SettingsFormUpdates) Render() string {
+	return m.form.Render()
 }
 
-func (m SettingsFormUpdates) StatusLine() string {
+func (m *SettingsFormUpdates) StatusLine() string {
 	return formatOperationStatus("checked", m.lastResult)
 }

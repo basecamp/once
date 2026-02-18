@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
+	"github.com/basecamp/gliff/tui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -40,29 +40,29 @@ func TestSettingsFormApplication_TabNavigation(t *testing.T) {
 	form := NewSettingsFormApplication(docker.ApplicationSettings{Host: "app.example.com"})
 	assert.Equal(t, 0, form.form.Focused())
 
-	form = applicationPressTab(form)
+	applicationPressTab(form)
 	assert.Equal(t, 1, form.form.Focused(), "hostname")
 
-	form = applicationPressTab(form)
+	applicationPressTab(form)
 	assert.Equal(t, 2, form.form.Focused(), "tls")
 
-	form = applicationPressTab(form)
+	applicationPressTab(form)
 	assert.Equal(t, 3, form.form.Focused(), "done button")
 
-	form = applicationPressTab(form)
+	applicationPressTab(form)
 	assert.Equal(t, 4, form.form.Focused(), "cancel button")
 
-	form = applicationPressTab(form)
+	applicationPressTab(form)
 	assert.Equal(t, 0, form.form.Focused(), "wraps to image")
 }
 
 func TestSettingsFormApplication_ShiftTabNavigation(t *testing.T) {
 	form := NewSettingsFormApplication(docker.ApplicationSettings{Host: "app.example.com"})
 
-	form = applicationPressShiftTab(form)
+	applicationPressShiftTab(form)
 	assert.Equal(t, 4, form.form.Focused(), "cancel button")
 
-	form = applicationPressShiftTab(form)
+	applicationPressShiftTab(form)
 	assert.Equal(t, 3, form.form.Focused(), "done button")
 }
 
@@ -70,38 +70,38 @@ func TestSettingsFormApplication_SpaceTogglesTLS(t *testing.T) {
 	form := NewSettingsFormApplication(docker.ApplicationSettings{Host: "app.example.com"})
 	assert.True(t, form.form.CheckboxField(appTLSField).Checked())
 
-	form = applicationPressTab(form)
-	form = applicationPressTab(form)
+	applicationPressTab(form)
+	applicationPressTab(form)
 	assert.Equal(t, 2, form.form.Focused())
 
-	form = applicationPressSpace(form)
+	applicationPressSpace(form)
 	assert.False(t, form.form.CheckboxField(appTLSField).Checked())
 
-	form = applicationPressSpace(form)
+	applicationPressSpace(form)
 	assert.True(t, form.form.CheckboxField(appTLSField).Checked())
 }
 
 func TestSettingsFormApplication_SpaceDoesNotToggleTLSForLocalhost(t *testing.T) {
 	form := NewSettingsFormApplication(docker.ApplicationSettings{Host: "chat.localhost"})
 
-	form = applicationPressTab(form)
-	form = applicationPressTab(form)
+	applicationPressTab(form)
+	applicationPressTab(form)
 	assert.Equal(t, 2, form.form.Focused())
 
-	form = applicationPressSpace(form)
+	applicationPressSpace(form)
 	assert.True(t, form.form.CheckboxField(appTLSField).Checked(), "toggle ignored for localhost")
 }
 
 func TestSettingsFormApplication_TLSShowsDisabledForLocalhost(t *testing.T) {
 	form := NewSettingsFormApplication(docker.ApplicationSettings{Host: "app.example.com"})
-	assert.Equal(t, "[✓] Enabled", form.form.CheckboxField(appTLSField).View())
+	assert.Equal(t, "[✓] Enabled", form.form.CheckboxField(appTLSField).Render())
 
-	form = applicationPressTab(form)
-	form = applicationTypeText(form, ".localhost")
-	assert.Equal(t, "Not available for localhost", form.form.CheckboxField(appTLSField).View())
+	applicationPressTab(form)
+	applicationTypeText(form, ".localhost")
+	assert.Equal(t, "Not available for localhost", form.form.CheckboxField(appTLSField).Render())
 
-	form = applicationClearAndType(form, "app.example.com")
-	assert.Equal(t, "[✓] Enabled", form.form.CheckboxField(appTLSField).View())
+	applicationClearAndType(form, "app.example.com")
+	assert.Equal(t, "[✓] Enabled", form.form.CheckboxField(appTLSField).Render())
 }
 
 func TestSettingsFormApplication_Submit(t *testing.T) {
@@ -112,10 +112,10 @@ func TestSettingsFormApplication_Submit(t *testing.T) {
 	})
 
 	for range 3 {
-		form = applicationPressTab(form)
+		applicationPressTab(form)
 	}
 
-	_, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	cmd := form.Update(keyMsg(tui.KeyEnter, 0))
 	require.NotNil(t, cmd)
 	msg := cmd()
 	submitMsg, ok := msg.(SettingsSectionSubmitMsg)
@@ -130,10 +130,10 @@ func TestSettingsFormApplication_Cancel(t *testing.T) {
 	form := NewSettingsFormApplication(docker.ApplicationSettings{Host: "app.example.com"})
 
 	for range 4 {
-		form = applicationPressTab(form)
+		applicationPressTab(form)
 	}
 
-	_, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	cmd := form.Update(keyMsg(tui.KeyEnter, 0))
 	require.NotNil(t, cmd)
 	msg := cmd()
 	_, ok := msg.(SettingsSectionCancelMsg)
@@ -164,25 +164,25 @@ func TestSettingsFormEmail_TabNavigation(t *testing.T) {
 	form := NewSettingsFormEmail(docker.ApplicationSettings{})
 	assert.Equal(t, 0, form.form.Focused())
 
-	form = emailPressTab(form)
+	emailPressTab(form)
 	assert.Equal(t, 1, form.form.Focused(), "port")
 
-	form = emailPressTab(form)
+	emailPressTab(form)
 	assert.Equal(t, 2, form.form.Focused(), "username")
 
-	form = emailPressTab(form)
+	emailPressTab(form)
 	assert.Equal(t, 3, form.form.Focused(), "password")
 
-	form = emailPressTab(form)
+	emailPressTab(form)
 	assert.Equal(t, 4, form.form.Focused(), "from")
 
-	form = emailPressTab(form)
+	emailPressTab(form)
 	assert.Equal(t, 5, form.form.Focused(), "done button")
 
-	form = emailPressTab(form)
+	emailPressTab(form)
 	assert.Equal(t, 6, form.form.Focused(), "cancel button")
 
-	form = emailPressTab(form)
+	emailPressTab(form)
 	assert.Equal(t, 0, form.form.Focused(), "wraps to server")
 }
 
@@ -197,10 +197,10 @@ func TestSettingsFormEmail_Submit(t *testing.T) {
 	form := NewSettingsFormEmail(settings)
 
 	for range 5 {
-		form = emailPressTab(form)
+		emailPressTab(form)
 	}
 
-	_, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	cmd := form.Update(keyMsg(tui.KeyEnter, 0))
 	require.NotNil(t, cmd)
 	msg := cmd()
 	submitMsg, ok := msg.(SettingsSectionSubmitMsg)
@@ -214,10 +214,10 @@ func TestSettingsFormEmail_Cancel(t *testing.T) {
 	form := NewSettingsFormEmail(docker.ApplicationSettings{})
 
 	for range 6 {
-		form = emailPressTab(form)
+		emailPressTab(form)
 	}
 
-	_, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	cmd := form.Update(keyMsg(tui.KeyEnter, 0))
 	require.NotNil(t, cmd)
 	msg := cmd()
 	_, ok := msg.(SettingsSectionCancelMsg)
@@ -250,28 +250,28 @@ func TestSettingsFormResources_TabNavigation(t *testing.T) {
 	form := NewSettingsFormResources(docker.ApplicationSettings{})
 	assert.Equal(t, 0, form.form.Focused())
 
-	form = resourcesPressTab(form)
+	resourcesPressTab(form)
 	assert.Equal(t, 1, form.form.Focused(), "memory")
 
-	form = resourcesPressTab(form)
+	resourcesPressTab(form)
 	assert.Equal(t, 2, form.form.Focused(), "done button")
 
-	form = resourcesPressTab(form)
+	resourcesPressTab(form)
 	assert.Equal(t, 3, form.form.Focused(), "cancel button")
 
-	form = resourcesPressTab(form)
+	resourcesPressTab(form)
 	assert.Equal(t, 0, form.form.Focused(), "wraps to cpu")
 }
 
 func TestSettingsFormResources_Submit(t *testing.T) {
 	form := NewSettingsFormResources(docker.ApplicationSettings{Name: "myapp"})
 
-	form = resourcesTypeText(form, "2")
-	form = resourcesPressTab(form)
-	form = resourcesTypeText(form, "1024")
-	form = resourcesPressTab(form)
+	resourcesTypeText(form, "2")
+	resourcesPressTab(form)
+	resourcesTypeText(form, "1024")
+	resourcesPressTab(form)
 
-	_, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	cmd := form.Update(keyMsg(tui.KeyEnter, 0))
 	require.NotNil(t, cmd)
 	msg := cmd()
 	submitMsg, ok := msg.(SettingsSectionSubmitMsg)
@@ -284,10 +284,10 @@ func TestSettingsFormResources_Submit(t *testing.T) {
 func TestSettingsFormResources_SubmitBlank(t *testing.T) {
 	form := NewSettingsFormResources(docker.ApplicationSettings{})
 
-	form = resourcesPressTab(form)
-	form = resourcesPressTab(form)
+	resourcesPressTab(form)
+	resourcesPressTab(form)
 
-	_, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	cmd := form.Update(keyMsg(tui.KeyEnter, 0))
 	require.NotNil(t, cmd)
 	msg := cmd()
 	submitMsg, ok := msg.(SettingsSectionSubmitMsg)
@@ -300,10 +300,10 @@ func TestSettingsFormResources_Cancel(t *testing.T) {
 	form := NewSettingsFormResources(docker.ApplicationSettings{})
 
 	for range 3 {
-		form = resourcesPressTab(form)
+		resourcesPressTab(form)
 	}
 
-	_, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	cmd := form.Update(keyMsg(tui.KeyEnter, 0))
 	require.NotNil(t, cmd)
 	msg := cmd()
 	_, ok := msg.(SettingsSectionCancelMsg)
@@ -325,12 +325,12 @@ func TestSettingsFormBackups_ActionReadsCurrentFieldValue(t *testing.T) {
 	form.form.TextField(backupsPathField).SetValue("/new/path")
 
 	// Tab to Done, then to the action button, then press enter
-	form = backupsPressTab(form)
-	form = backupsPressTab(form)
-	form = backupsPressTab(form)
+	backupsPressTab(form)
+	backupsPressTab(form)
+	backupsPressTab(form)
 	assert.Equal(t, form.form.actionIndex(), form.form.Focused(), "action button focused")
 
-	_, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	cmd := form.Update(keyMsg(tui.KeyEnter, 0))
 	require.NotNil(t, cmd)
 	msg := cmd()
 	actionMsg, ok := msg.(settingsRunActionMsg)
@@ -350,16 +350,16 @@ func TestSettingsFormBackups_Submit(t *testing.T) {
 	form := NewSettingsFormBackups(app, nil)
 
 	// Type a path
-	form = backupsTypeText(form, "/my/backups")
-	form = backupsPressTab(form)
+	backupsTypeText(form, "/my/backups")
+	backupsPressTab(form)
 
 	// Toggle auto-backup
-	form = backupsPressSpace(form)
+	backupsPressSpace(form)
 
 	// Tab to Done
-	form = backupsPressTab(form)
+	backupsPressTab(form)
 
-	_, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	cmd := form.Update(keyMsg(tui.KeyEnter, 0))
 	require.NotNil(t, cmd)
 	msg := cmd()
 	submitMsg, ok := msg.(SettingsSectionSubmitMsg)
@@ -370,66 +370,53 @@ func TestSettingsFormBackups_Submit(t *testing.T) {
 
 // Helpers
 
-func applicationTypeText(form SettingsFormApplication, text string) SettingsFormApplication {
+func applicationTypeText(form *SettingsFormApplication, text string) {
 	for _, r := range text {
-		section, _ := form.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
-		form = section.(SettingsFormApplication)
+		form.Update(runeMsg(r))
 	}
-	return form
 }
 
-func applicationClearAndType(form SettingsFormApplication, text string) SettingsFormApplication {
+func applicationClearAndType(form *SettingsFormApplication, text string) {
 	form.form.TextField(appHostnameField).SetValue("")
-	return applicationTypeText(form, text)
+	applicationTypeText(form, text)
 }
 
-func applicationPressTab(form SettingsFormApplication) SettingsFormApplication {
-	section, _ := form.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	return section.(SettingsFormApplication)
+func applicationPressTab(form *SettingsFormApplication) {
+	form.Update(keyMsg(tui.KeyTab, 0))
 }
 
-func applicationPressShiftTab(form SettingsFormApplication) SettingsFormApplication {
-	section, _ := form.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
-	return section.(SettingsFormApplication)
+func applicationPressShiftTab(form *SettingsFormApplication) {
+	form.Update(keyMsg(tui.KeyShiftTab, 0))
 }
 
-func applicationPressSpace(form SettingsFormApplication) SettingsFormApplication {
-	section, _ := form.Update(tea.KeyPressMsg{Code: tea.KeySpace})
-	return section.(SettingsFormApplication)
+func applicationPressSpace(form *SettingsFormApplication) {
+	form.Update(runeMsg(' '))
 }
 
-func emailPressTab(form SettingsFormEmail) SettingsFormEmail {
-	section, _ := form.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	return section.(SettingsFormEmail)
+func emailPressTab(form *SettingsFormEmail) {
+	form.Update(keyMsg(tui.KeyTab, 0))
 }
 
-func resourcesPressTab(form SettingsFormResources) SettingsFormResources {
-	section, _ := form.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	return section.(SettingsFormResources)
+func resourcesPressTab(form *SettingsFormResources) {
+	form.Update(keyMsg(tui.KeyTab, 0))
 }
 
-func resourcesTypeText(form SettingsFormResources, text string) SettingsFormResources {
+func resourcesTypeText(form *SettingsFormResources, text string) {
 	for _, r := range text {
-		section, _ := form.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
-		form = section.(SettingsFormResources)
+		form.Update(runeMsg(r))
 	}
-	return form
 }
 
-func backupsPressTab(form SettingsFormBackups) SettingsFormBackups {
-	section, _ := form.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	return section.(SettingsFormBackups)
+func backupsPressTab(form *SettingsFormBackups) {
+	form.Update(keyMsg(tui.KeyTab, 0))
 }
 
-func backupsPressSpace(form SettingsFormBackups) SettingsFormBackups {
-	section, _ := form.Update(tea.KeyPressMsg{Code: tea.KeySpace})
-	return section.(SettingsFormBackups)
+func backupsPressSpace(form *SettingsFormBackups) {
+	form.Update(runeMsg(' '))
 }
 
-func backupsTypeText(form SettingsFormBackups, text string) SettingsFormBackups {
+func backupsTypeText(form *SettingsFormBackups, text string) {
 	for _, r := range text {
-		section, _ := form.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
-		form = section.(SettingsFormBackups)
+		form.Update(runeMsg(r))
 	}
-	return form
 }

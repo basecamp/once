@@ -1,27 +1,17 @@
 package ui
 
 import (
-	"charm.land/bubbles/v2/key"
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/basecamp/gliff/tui"
 
 	"github.com/basecamp/once/internal/docker"
 )
 
-type installKeyMap struct {
-	Back key.Binding
-}
-
-func (k installKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Back}
-}
-
-func (k installKeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{{k.Back}}
-}
-
-var installKeys = installKeyMap{
-	Back: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+var installKeys = struct {
+	Back KeyBinding
+}{
+	Back: NewKeyBinding(Key(tui.KeyEscape)).WithHelp("esc", "back"),
 }
 
 type installState int
@@ -36,13 +26,13 @@ type Install struct {
 	width, height int
 	help          Help
 	state         installState
-	form          InstallForm
-	activity      InstallActivity
+	form          *InstallForm
+	activity      *InstallActivity
 	err           error
 }
 
-func NewInstall(ns *docker.Namespace, imageRef string) Install {
-	return Install{
+func NewInstall(ns *docker.Namespace, imageRef string) *Install {
+	return &Install{
 		namespace: ns,
 		help:      NewHelp(),
 		state:     installStateForm,
@@ -50,34 +40,34 @@ func NewInstall(ns *docker.Namespace, imageRef string) Install {
 	}
 }
 
-func (m Install) Init() tea.Cmd {
+func (m *Install) Init() tui.Cmd {
 	return m.form.Init()
 }
 
-func (m Install) Update(msg tea.Msg) (Component, tea.Cmd) {
+func (m *Install) Update(msg tui.Msg) tui.Cmd {
 	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
+	case tui.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.help.SetWidth(m.width)
 		if m.state == installStateForm {
-			m.form, _ = m.form.Update(msg)
+			m.form.Update(msg)
 		} else {
-			m.activity, _ = m.activity.Update(msg)
+			m.activity.Update(msg)
 		}
 
-	case tea.MouseClickMsg:
+	case tui.MouseMsg:
 		if m.state == installStateForm {
-			if cmd := m.help.Update(msg, installKeys); cmd != nil {
-				return m, cmd
+			if cmd := m.help.Update(msg); cmd != nil {
+				return cmd
 			}
 		}
 
-	case tea.KeyMsg:
+	case tui.KeyMsg:
 		if m.state == installStateForm {
 			if m.err != nil {
 				m.err = nil
 			}
-			if key.Matches(msg, installKeys.Back) {
+			if installKeys.Back.Matches(msg) {
 				return m.cancelFromScreen()
 			}
 		}
@@ -88,52 +78,52 @@ func (m Install) Update(msg tea.Msg) (Component, tea.Cmd) {
 	case InstallFormSubmitMsg:
 		m.state = installStateActivity
 		m.activity = NewInstallActivity(m.namespace, msg.ImageRef, msg.Hostname)
-		m.activity, _ = m.activity.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
-		return m, m.activity.Init()
+		m.activity.Update(tui.WindowSizeMsg{Width: m.width, Height: m.height})
+		return m.activity.Init()
 
 	case InstallActivityFailedMsg:
 		m.state = installStateForm
 		m.err = msg.Err
-		return m, nil
+		return nil
 
 	case InstallActivityDoneMsg:
-		return m, func() tea.Msg { return navigateToAppMsg{app: msg.App} }
+		return func() tui.Msg { return navigateToAppMsg{app: msg.App} }
 	}
 
-	var cmd tea.Cmd
+	var cmd tui.Cmd
 	if m.state == installStateForm {
-		m.form, cmd = m.form.Update(msg)
+		cmd = m.form.Update(msg)
 	} else {
-		m.activity, cmd = m.activity.Update(msg)
+		cmd = m.activity.Update(msg)
 	}
-	return m, cmd
+	return cmd
 }
 
-func (m Install) cancelFromScreen() (Component, tea.Cmd) {
+func (m *Install) cancelFromScreen() tui.Cmd {
 	if m.form.ImageRef() != "" {
-		return m, func() tea.Msg { return quitMsg{} }
+		return func() tui.Msg { return quitMsg{} }
 	}
-	return m, func() tea.Msg { return navigateToDashboardMsg{} }
+	return func() tui.Msg { return navigateToDashboardMsg{} }
 }
 
-func (m Install) View() string {
+func (m *Install) Render() string {
 	titleLine := Styles.TitleRule(m.width, "install")
 
 	var contentView string
 	if m.state == installStateForm {
 		if m.err != nil {
 			errorLine := lipgloss.NewStyle().Foreground(Colors.Error).Render("Error: " + m.err.Error())
-			contentView = lipgloss.JoinVertical(lipgloss.Center, errorLine, "", m.form.View())
+			contentView = lipgloss.JoinVertical(lipgloss.Center, errorLine, "", m.form.Render())
 		} else {
-			contentView = m.form.View()
+			contentView = m.form.Render()
 		}
 	} else {
-		contentView = m.activity.View()
+		contentView = m.activity.Render()
 	}
 
 	var helpLine string
 	if m.state == installStateForm {
-		helpView := m.help.View(installKeys)
+		helpView := m.help.Render([]KeyBinding{installKeys.Back})
 		helpLine = Styles.HelpLine(m.width, helpView)
 	}
 
