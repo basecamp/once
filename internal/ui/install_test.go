@@ -28,9 +28,9 @@ func TestInstall_SuccessNavigatesToApp(t *testing.T) {
 	require.NotNil(t, cmd)
 
 	msg := cmd()
-	navMsg, ok := msg.(navigateToAppMsg)
-	require.True(t, ok, "expected navigateToAppMsg, got %T", msg)
-	assert.Equal(t, app, navMsg.app)
+	navMsg, ok := msg.(NavigateToAppMsg)
+	require.True(t, ok, "expected NavigateToAppMsg, got %T", msg)
+	assert.Equal(t, app, navMsg.App)
 }
 
 func TestInstall_FailureReturnsToFormWithError(t *testing.T) {
@@ -73,8 +73,8 @@ func TestInstall_EscNavigatesToDashboard(t *testing.T) {
 	require.NotNil(t, cmd)
 
 	msg := cmd()
-	_, ok := msg.(navigateToDashboardMsg)
-	assert.True(t, ok, "expected navigateToDashboardMsg, got %T", msg)
+	_, ok := msg.(NavigateToDashboardMsg)
+	assert.True(t, ok, "expected NavigateToDashboardMsg, got %T", msg)
 }
 
 func TestInstall_CancelNavigatesToDashboard(t *testing.T) {
@@ -84,8 +84,8 @@ func TestInstall_CancelNavigatesToDashboard(t *testing.T) {
 	require.NotNil(t, cmd)
 
 	msg := cmd()
-	_, ok := msg.(navigateToDashboardMsg)
-	assert.True(t, ok, "expected navigateToDashboardMsg, got %T", msg)
+	_, ok := msg.(NavigateToDashboardMsg)
+	assert.True(t, ok, "expected NavigateToDashboardMsg, got %T", msg)
 }
 
 func TestInstall_EscQuitsWhenImageRefSet(t *testing.T) {
@@ -95,8 +95,8 @@ func TestInstall_EscQuitsWhenImageRefSet(t *testing.T) {
 	require.NotNil(t, cmd)
 
 	msg := cmd()
-	_, ok := msg.(quitMsg)
-	assert.True(t, ok, "expected quitMsg, got %T", msg)
+	_, ok := msg.(QuitMsg)
+	assert.True(t, ok, "expected QuitMsg, got %T", msg)
 }
 
 func TestInstall_EscNavigatesToDashboardEvenWithFieldsFilled(t *testing.T) {
@@ -107,8 +107,8 @@ func TestInstall_EscNavigatesToDashboardEvenWithFieldsFilled(t *testing.T) {
 	require.NotNil(t, cmd)
 
 	msg := cmd()
-	_, ok := msg.(navigateToDashboardMsg)
-	assert.True(t, ok, "expected navigateToDashboardMsg, got %T", msg)
+	_, ok := msg.(NavigateToDashboardMsg)
+	assert.True(t, ok, "expected NavigateToDashboardMsg, got %T", msg)
 }
 
 func TestInstall_CancelQuitsWhenImageRefSet(t *testing.T) {
@@ -118,8 +118,8 @@ func TestInstall_CancelQuitsWhenImageRefSet(t *testing.T) {
 	require.NotNil(t, cmd)
 
 	msg := cmd()
-	_, ok := msg.(quitMsg)
-	assert.True(t, ok, "expected quitMsg, got %T", msg)
+	_, ok := msg.(QuitMsg)
+	assert.True(t, ok, "expected QuitMsg, got %T", msg)
 }
 
 // Helpers

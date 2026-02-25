@@ -25,22 +25,22 @@ type (
 	namespaceChangedMsg          struct{}
 	scrapeTickMsg                struct{}
 	scrapeDoneMsg                struct{}
-	navigateToInstallMsg         struct{}
-	navigateToDashboardMsg struct {
-		appName    string
-		allowEmpty bool
+	NavigateToInstallMsg struct{}
+	NavigateToDashboardMsg struct {
+		AppName    string
+		AllowEmpty bool
 	}
-	navigateToAppMsg             struct{ app *docker.Application }
-	navigateToSettingsSectionMsg struct {
-		app     *docker.Application
-		section SettingsSectionType
+	NavigateToAppMsg             struct{ App *docker.Application }
+	NavigateToSettingsSectionMsg struct {
+		App     *docker.Application
+		Section SettingsSectionType
 	}
 )
 
 type (
-	navigateToLogsMsg   struct{ app *docker.Application }
-	navigateToRemoveMsg struct{ app *docker.Application }
-	quitMsg             struct{}
+	NavigateToLogsMsg   struct{ App *docker.Application }
+	NavigateToRemoveMsg struct{ App *docker.Application }
+	QuitMsg             struct{}
 )
 
 type SettingsSectionType int
@@ -157,19 +157,19 @@ func (m *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.currentScreen.Update(msg)
 		return m, cmd
 
-	case navigateToInstallMsg:
+	case NavigateToInstallMsg:
 		m.currentScreen = NewInstall(m.namespace, "")
 		sizeCmd := m.currentScreen.Update(m.lastSize)
 		return m, tea.Batch(sizeCmd, m.currentScreen.Init())
 
-	case navigateToAppMsg:
+	case NavigateToAppMsg:
 		if err := m.namespace.Refresh(m.watchCtx); err != nil {
 			slog.Error("refreshing namespace", "err", err)
 		}
 		apps := m.namespace.Applications()
 		targetIndex := 0
 		for i, app := range apps {
-			if app.Settings.Name == msg.app.Settings.Name {
+			if app.Settings.Name == msg.App.Settings.Name {
 				targetIndex = i
 				break
 			}
@@ -178,18 +178,18 @@ func (m *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sizeCmd := m.currentScreen.Update(m.lastSize)
 		return m, tea.Batch(sizeCmd, m.currentScreen.Init())
 
-	case navigateToDashboardMsg:
+	case NavigateToDashboardMsg:
 		if err := m.namespace.Refresh(m.watchCtx); err != nil {
 			slog.Error("refreshing namespace", "err", err)
 		}
 		apps := m.namespace.Applications()
-		if len(apps) == 0 && !msg.allowEmpty {
+		if len(apps) == 0 && !msg.AllowEmpty {
 			m.shutdown()
 			return m, tea.Quit
 		}
 		selectedIndex := 0
 		for i, app := range apps {
-			if app.Settings.Name == msg.appName {
+			if app.Settings.Name == msg.AppName {
 				selectedIndex = i
 				break
 			}
@@ -198,22 +198,22 @@ func (m *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sizeCmd := m.currentScreen.Update(m.lastSize)
 		return m, tea.Batch(sizeCmd, m.currentScreen.Init())
 
-	case navigateToSettingsSectionMsg:
-		m.currentScreen = NewSettings(m.namespace, msg.app, msg.section)
+	case NavigateToSettingsSectionMsg:
+		m.currentScreen = NewSettings(m.namespace, msg.App, msg.Section)
 		sizeCmd := m.currentScreen.Update(m.lastSize)
 		return m, tea.Batch(sizeCmd, m.currentScreen.Init())
 
-	case navigateToRemoveMsg:
-		m.currentScreen = NewRemove(m.namespace, msg.app)
+	case NavigateToRemoveMsg:
+		m.currentScreen = NewRemove(m.namespace, msg.App)
 		sizeCmd := m.currentScreen.Update(m.lastSize)
 		return m, tea.Batch(sizeCmd, m.currentScreen.Init())
 
-	case navigateToLogsMsg:
-		m.currentScreen = NewLogs(m.namespace, msg.app)
+	case NavigateToLogsMsg:
+		m.currentScreen = NewLogs(m.namespace, msg.App)
 		sizeCmd := m.currentScreen.Update(m.lastSize)
 		return m, tea.Batch(sizeCmd, m.currentScreen.Init())
 
-	case quitMsg:
+	case QuitMsg:
 		m.shutdown()
 		return m, tea.Quit
 	}

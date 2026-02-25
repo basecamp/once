@@ -124,7 +124,7 @@ func (m *Settings) Update(msg tea.Msg) tea.Cmd {
 	case MouseEvent:
 		if m.state == settingsStateActionComplete {
 			if msg.IsClick && msg.Target == "done" {
-				return func() tea.Msg { return navigateToDashboardMsg{appName: m.app.Settings.Name} }
+				return func() tea.Msg { return NavigateToDashboardMsg{AppName: m.app.Settings.Name} }
 			}
 			return nil
 		}
@@ -137,7 +137,7 @@ func (m *Settings) Update(msg tea.Msg) tea.Cmd {
 	case tea.KeyPressMsg:
 		if m.state == settingsStateActionComplete {
 			if key.Matches(msg, NewKeyBinding("enter")) {
-				return func() tea.Msg { return navigateToDashboardMsg{appName: m.app.Settings.Name} }
+				return func() tea.Msg { return NavigateToDashboardMsg{AppName: m.app.Settings.Name} }
 			}
 			return nil
 		}
@@ -146,16 +146,16 @@ func (m *Settings) Update(msg tea.Msg) tea.Cmd {
 				m.err = nil
 			}
 			if key.Matches(msg, settingsKeys.Back) {
-				return func() tea.Msg { return navigateToDashboardMsg{appName: m.app.Settings.Name} }
+				return func() tea.Msg { return NavigateToDashboardMsg{AppName: m.app.Settings.Name} }
 			}
 		}
 
 	case SettingsSectionCancelMsg:
-		return func() tea.Msg { return navigateToDashboardMsg{appName: m.app.Settings.Name} }
+		return func() tea.Msg { return NavigateToDashboardMsg{AppName: m.app.Settings.Name} }
 
 	case SettingsSectionSubmitMsg:
 		if msg.Settings.Equal(m.app.Settings) {
-			return func() tea.Msg { return navigateToDashboardMsg{appName: m.app.Settings.Name} }
+			return func() tea.Msg { return NavigateToDashboardMsg{AppName: m.app.Settings.Name} }
 		}
 		m.state = settingsStateDeploying
 		m.app.Settings = msg.Settings
@@ -171,7 +171,7 @@ func (m *Settings) Update(msg tea.Msg) tea.Cmd {
 		})
 
 	case settingsDeployFinishedMsg:
-		return func() tea.Msg { return navigateToAppMsg{app: m.app} }
+		return func() tea.Msg { return NavigateToAppMsg{App: m.app} }
 
 	case settingsActionFinishedMsg:
 		if msg.err != nil {
@@ -184,7 +184,7 @@ func (m *Settings) Update(msg tea.Msg) tea.Cmd {
 			m.state = settingsStateActionComplete
 			return nil
 		}
-		return func() tea.Msg { return navigateToAppMsg{app: m.app} }
+		return func() tea.Msg { return NavigateToAppMsg{App: m.app} }
 
 	case ProgressBusyTickMsg:
 		if m.state == settingsStateDeploying || m.state == settingsStateRunningAction {

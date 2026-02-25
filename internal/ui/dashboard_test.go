@@ -135,9 +135,9 @@ func TestDashboard_ActionsMenuRemove(t *testing.T) {
 	require.NotNil(t, cmd)
 
 	msg := cmd()
-	navMsg, ok := msg.(navigateToRemoveMsg)
-	require.True(t, ok, "expected navigateToRemoveMsg, got %T", msg)
-	assert.Equal(t, d.apps[0], navMsg.app)
+	navMsg, ok := msg.(NavigateToRemoveMsg)
+	require.True(t, ok, "expected NavigateToRemoveMsg, got %T", msg)
+	assert.Equal(t, d.apps[0], navMsg.App)
 }
 
 func TestDashboard_OldStartStopKeyRemoved(t *testing.T) {

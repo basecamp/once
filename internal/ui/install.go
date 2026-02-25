@@ -100,7 +100,7 @@ func (m *Install) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case InstallActivityDoneMsg:
-		return func() tea.Msg { return navigateToAppMsg{app: msg.App} }
+		return func() tea.Msg { return NavigateToAppMsg(msg) }
 	}
 
 	var cmd tea.Cmd
@@ -151,9 +151,9 @@ func (m *Install) cancelFromScreen() tea.Cmd {
 		m.activity.Cancel()
 	}
 	if m.cliMode {
-		return func() tea.Msg { return quitMsg{} }
+		return func() tea.Msg { return QuitMsg{} }
 	}
-	return func() tea.Msg { return navigateToDashboardMsg{} }
+	return func() tea.Msg { return NavigateToDashboardMsg{} }
 }
 
 // renderMiddle composites the content view over the starfield background.

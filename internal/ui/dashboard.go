@@ -112,7 +112,7 @@ func (m *Dashboard) Update(msg tea.Msg) tea.Cmd {
 		}
 
 		if key.Matches(msg, dashboardKeys.Quit) {
-			return func() tea.Msg { return quitMsg{} }
+			return func() tea.Msg { return QuitMsg{} }
 		}
 		if key.Matches(msg, dashboardKeys.Up) {
 			if m.selectedIndex > 0 {
@@ -131,7 +131,7 @@ func (m *Dashboard) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		if key.Matches(msg, dashboardKeys.NewApp) {
-			return func() tea.Msg { return navigateToInstallMsg{} }
+			return func() tea.Msg { return NavigateToInstallMsg{} }
 		}
 		if key.Matches(msg, dashboardKeys.Settings) && len(m.apps) > 0 {
 			app := m.apps[m.selectedIndex]
@@ -148,7 +148,7 @@ func (m *Dashboard) Update(msg tea.Msg) tea.Cmd {
 			return cmd
 		}
 		if key.Matches(msg, dashboardKeys.Logs) && len(m.apps) > 0 {
-			return func() tea.Msg { return navigateToLogsMsg{app: m.apps[m.selectedIndex]} }
+			return func() tea.Msg { return NavigateToLogsMsg{App: m.apps[m.selectedIndex]} }
 		}
 
 	case SettingsMenuCloseMsg:
@@ -157,7 +157,7 @@ func (m *Dashboard) Update(msg tea.Msg) tea.Cmd {
 	case SettingsMenuSelectMsg:
 		m.overlay = nil
 		return func() tea.Msg {
-			return navigateToSettingsSectionMsg(msg)
+			return NavigateToSettingsSectionMsg{App: msg.app, Section: msg.section}
 		}
 
 	case ActionsMenuCloseMsg:
@@ -175,7 +175,7 @@ func (m *Dashboard) Update(msg tea.Msg) tea.Cmd {
 			m.rebuildViewportContent()
 			return tea.Batch(m.progress.Init(), m.runStartStop(app))
 		case ActionsMenuRemove:
-			return func() tea.Msg { return navigateToRemoveMsg{app: msg.app} }
+			return func() tea.Msg { return NavigateToRemoveMsg{App: msg.app} }
 		}
 
 	case startStopFinishedMsg:

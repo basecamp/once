@@ -78,7 +78,7 @@ func TestLogsBackNavigation(t *testing.T) {
 	require.NotNil(t, cmd)
 
 	msg := cmd()
-	_, ok := msg.(navigateToDashboardMsg)
+	_, ok := msg.(NavigateToDashboardMsg)
 	assert.True(t, ok)
 }
 

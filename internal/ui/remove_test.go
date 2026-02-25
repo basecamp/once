@@ -28,9 +28,9 @@ func TestRemove_CancelNavigatesToDashboard(t *testing.T) {
 	require.NotNil(t, cmd)
 
 	msg := cmd()
-	navMsg, ok := msg.(navigateToDashboardMsg)
-	require.True(t, ok, "expected navigateToDashboardMsg, got %T", msg)
-	assert.Equal(t, "test-app", navMsg.appName)
+	navMsg, ok := msg.(NavigateToDashboardMsg)
+	require.True(t, ok, "expected NavigateToDashboardMsg, got %T", msg)
+	assert.Equal(t, "test-app", navMsg.AppName)
 }
 
 func TestRemove_EscNavigatesToDashboard(t *testing.T) {
@@ -40,9 +40,9 @@ func TestRemove_EscNavigatesToDashboard(t *testing.T) {
 	require.NotNil(t, cmd)
 
 	msg := cmd()
-	navMsg, ok := msg.(navigateToDashboardMsg)
-	require.True(t, ok, "expected navigateToDashboardMsg, got %T", msg)
-	assert.Equal(t, "test-app", navMsg.appName)
+	navMsg, ok := msg.(NavigateToDashboardMsg)
+	require.True(t, ok, "expected NavigateToDashboardMsg, got %T", msg)
+	assert.Equal(t, "test-app", navMsg.AppName)
 }
 
 func TestRemove_ConfirmStartsRemoval(t *testing.T) {
@@ -60,10 +60,10 @@ func TestRemove_SuccessNavigatesToDashboard(t *testing.T) {
 	require.NotNil(t, cmd)
 
 	msg := cmd()
-	navMsg, ok := msg.(navigateToDashboardMsg)
-	require.True(t, ok, "expected navigateToDashboardMsg, got %T", msg)
-	assert.Empty(t, navMsg.appName)
-	assert.True(t, navMsg.allowEmpty)
+	navMsg, ok := msg.(NavigateToDashboardMsg)
+	require.True(t, ok, "expected NavigateToDashboardMsg, got %T", msg)
+	assert.Empty(t, navMsg.AppName)
+	assert.True(t, navMsg.AllowEmpty)
 }
 
 func TestRemove_ErrorShowsErrorAndReturnsToConfirmation(t *testing.T) {

@@ -71,7 +71,7 @@ func (m *Remove) Update(msg tea.Msg) tea.Cmd {
 				m.err = nil
 			}
 			if key.Matches(msg, removeKeys.Back) {
-				return func() tea.Msg { return navigateToDashboardMsg{appName: m.app.Settings.Name} }
+				return func() tea.Msg { return NavigateToDashboardMsg{AppName: m.app.Settings.Name} }
 			}
 			return m.confirmation.Update(msg)
 		}
@@ -82,7 +82,7 @@ func (m *Remove) Update(msg tea.Msg) tea.Cmd {
 		return tea.Batch(m.progress.Init(), m.runRemove())
 
 	case ConfirmationCancelMsg:
-		return func() tea.Msg { return navigateToDashboardMsg{appName: m.app.Settings.Name} }
+		return func() tea.Msg { return NavigateToDashboardMsg{AppName: m.app.Settings.Name} }
 
 	case removeFinishedMsg:
 		if msg.err != nil {
@@ -90,7 +90,7 @@ func (m *Remove) Update(msg tea.Msg) tea.Cmd {
 			m.removing = false
 			return nil
 		}
-		return func() tea.Msg { return navigateToDashboardMsg{allowEmpty: true} }
+		return func() tea.Msg { return NavigateToDashboardMsg{AllowEmpty: true} }
 
 	case ProgressBusyTickMsg:
 		if m.removing && m.progress != nil {
