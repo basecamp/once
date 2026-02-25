@@ -125,8 +125,7 @@ func (mt *Tracker) Sweep(content string) string {
 			// Not one of our markers — write the full CSI sequence to output
 			out.WriteString(tok.Text)
 
-		case ESCToken:
-			// Non-CSI escape sequences are preserved
+		case OSCToken, ESCToken:
 			out.WriteString(tok.Text)
 		}
 	}

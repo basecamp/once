@@ -238,6 +238,21 @@ func TestSweep_PreservesNonMarkerCSI(t *testing.T) {
 	assert.Equal(t, "text\x1b[2J", cleaned)
 }
 
+func TestSweep_OSCDoesNotAffectZoneCoordinates(t *testing.T) {
+	mt := &Tracker{}
+	// OSC hyperlink wrapping text before a marked zone
+	osc := "\x1b]8;;https://example.com\x07Link\x1b]8;;\x07"
+	content := osc + " " + mt.Mark("btn", "Click")
+	cleaned := mt.Sweep(content)
+	assert.Equal(t, osc+" Click", cleaned)
+
+	require.Len(t, mt.zones, 1)
+	z := mt.zones[0]
+	// "Link" is 4 visible cols, plus 1 space = startX at 5
+	assert.Equal(t, 5, z.startX)
+	assert.Equal(t, 9, z.endX)
+}
+
 func TestResolve_SideBySideRectangular(t *testing.T) {
 	mt := &Tracker{}
 

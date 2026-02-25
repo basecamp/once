@@ -98,6 +98,40 @@ func TestLexer(t *testing.T) {
 		assert.Equal(t, byte('m'), tok.Final)
 	})
 
+	t.Run("OSCWithBEL", func(t *testing.T) {
+		l := NewLexer("\x1b]8;;https://example.com\x07Link\x1b]8;;\x07")
+
+		tok := l.Next()
+		assert.Equal(t, OSCToken, tok.Type)
+		assert.Equal(t, "\x1b]8;;https://example.com\x07", tok.Text)
+
+		tok = l.Next()
+		assert.Equal(t, TextToken, tok.Type)
+		assert.Equal(t, "Link", tok.Text)
+
+		tok = l.Next()
+		assert.Equal(t, OSCToken, tok.Type)
+		assert.Equal(t, "\x1b]8;;\x07", tok.Text)
+
+		tok = l.Next()
+		assert.Equal(t, EOFToken, tok.Type)
+	})
+
+	t.Run("OSCWithST", func(t *testing.T) {
+		l := NewLexer("\x1b]0;Window Title\x1b\\Text")
+
+		tok := l.Next()
+		assert.Equal(t, OSCToken, tok.Type)
+		assert.Equal(t, "\x1b]0;Window Title\x1b\\", tok.Text)
+
+		tok = l.Next()
+		assert.Equal(t, TextToken, tok.Type)
+		assert.Equal(t, "Text", tok.Text)
+
+		tok = l.Next()
+		assert.Equal(t, EOFToken, tok.Type)
+	})
+
 	t.Run("ESCOnly", func(t *testing.T) {
 		l := NewLexer("\x1b")
 

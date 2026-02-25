@@ -39,14 +39,14 @@ func NewDashboardPanel(app *docker.Application, scraper *metrics.MetricsScraper,
 }
 
 func (p DashboardPanel) View(selected bool, toggling bool, width int) string {
-	title := p.app.Settings.URL()
-	if title == "" {
-		title = p.app.Settings.Name
-	}
-
 	innerWidth := max(width-3, 0) // 1 indicator + 1 left pad + 1 right pad
 
-	left := Styles.Title.Render(title)
+	var left string
+	if url := p.app.Settings.URL(); url != "" {
+		left = Styles.Title.Hyperlink(url).Render(p.app.Settings.Host)
+	} else {
+		left = Styles.Title.Render(p.app.Settings.Name)
+	}
 	right := renderStateInfo(&p.app, toggling)
 	gap := max(innerWidth-1-lipgloss.Width(left)-lipgloss.Width(right), 1)
 	titleLine := " " + left + strings.Repeat(" ", gap) + right

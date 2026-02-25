@@ -16,6 +16,7 @@ type TokenType int
 const (
 	TextToken TokenType = iota
 	CSIToken
+	OSCToken
 	ESCToken
 	EOFToken
 )
@@ -84,8 +85,11 @@ func (l *Lexer) readEscape() Token {
 		}
 	}
 
-	if l.input[l.pos] == '[' {
+	switch l.input[l.pos] {
+	case '[':
 		return l.readCSI(start)
+	case ']':
+		return l.readOSC(start)
 	}
 
 	// Other escape sequence (ESC followed by single char)
@@ -95,6 +99,29 @@ func (l *Lexer) readEscape() Token {
 		Type:  ESCToken,
 		Text:  l.input[start:l.pos],
 		Final: final,
+	}
+}
+
+func (l *Lexer) readOSC(start int) Token {
+	l.pos++ // consume ']'
+
+	// Read until BEL (\x07) or ST (\x1b\\)
+	for l.pos < len(l.input) {
+		b := l.input[l.pos]
+		if b == '\x07' {
+			l.pos++
+			break
+		}
+		if b == '\x1b' && l.pos+1 < len(l.input) && l.input[l.pos+1] == '\\' {
+			l.pos += 2
+			break
+		}
+		l.pos++
+	}
+
+	return Token{
+		Type: OSCToken,
+		Text: l.input[start:l.pos],
 	}
 }
 
