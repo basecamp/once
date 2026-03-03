@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	ChartHistoryLength  = 200
-	ChartUpdateInterval = 2 * time.Second
-	ChartSlidingWindow  = int(time.Minute / ChartUpdateInterval)
+	ChartHistoryLength      = 200
+	ChartUpdateInterval     = 2 * time.Second
+	UserStatsUpdateInterval = 30 * time.Second
+	ChartSlidingWindow      = int(time.Minute / ChartUpdateInterval)
 )
 
 type UnitType int

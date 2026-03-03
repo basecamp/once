@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/basecamp/once/internal/docker"
+	"github.com/basecamp/once/internal/userstats"
 	"github.com/basecamp/once/internal/version"
 )
 
@@ -24,6 +25,9 @@ func NewRunner(namespace string) *Runner {
 
 func (r *Runner) Run(ctx context.Context) error {
 	slog.Info("Starting background runner", "namespace", r.namespace, "check_interval", CheckInterval)
+
+	scraper := userstats.NewScraper(r.namespace)
+	go scraper.Run(ctx)
 
 	ticker := time.NewTicker(CheckInterval)
 	defer ticker.Stop()

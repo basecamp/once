@@ -11,6 +11,7 @@ import (
 
 	"github.com/basecamp/once/internal/docker"
 	"github.com/basecamp/once/internal/metrics"
+	"github.com/basecamp/once/internal/userstats"
 )
 
 var dashboardKeys = struct {
@@ -35,6 +36,7 @@ type Dashboard struct {
 	namespace     *docker.Namespace
 	scraper       *metrics.MetricsScraper
 	dockerScraper *docker.Scraper
+	userStats     *userstats.Reader
 	apps          []*docker.Application
 	panels        []DashboardPanel
 	selectedIndex int
@@ -54,7 +56,7 @@ type startStopFinishedMsg struct {
 }
 
 func NewDashboard(ns *docker.Namespace, apps []*docker.Application, selectedIndex int,
-	scraper *metrics.MetricsScraper, dockerScraper *docker.Scraper) Dashboard {
+	scraper *metrics.MetricsScraper, dockerScraper *docker.Scraper, userStats *userstats.Reader) Dashboard {
 
 	vp := viewport.New()
 	vp.MouseWheelEnabled = false
@@ -64,6 +66,7 @@ func NewDashboard(ns *docker.Namespace, apps []*docker.Application, selectedInde
 		namespace:     ns,
 		scraper:       scraper,
 		dockerScraper: dockerScraper,
+		userStats:     userStats,
 		apps:          apps,
 		selectedIndex: selectedIndex,
 		viewport:      vp,
@@ -368,6 +371,6 @@ func (m *Dashboard) panelIndexAtY(y int) (int, bool) {
 func (m *Dashboard) buildPanels() {
 	m.panels = make([]DashboardPanel, len(m.apps))
 	for i, app := range m.apps {
-		m.panels[i] = NewDashboardPanel(app, m.scraper, m.dockerScraper)
+		m.panels[i] = NewDashboardPanel(app, m.scraper, m.dockerScraper, m.userStats)
 	}
 }

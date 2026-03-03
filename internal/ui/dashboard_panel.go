@@ -11,6 +11,7 @@ import (
 
 	"github.com/basecamp/once/internal/docker"
 	"github.com/basecamp/once/internal/metrics"
+	"github.com/basecamp/once/internal/userstats"
 )
 
 const PanelHeight = 7
@@ -20,17 +21,19 @@ type DashboardPanel struct {
 	app           docker.Application
 	scraper       *metrics.MetricsScraper
 	dockerScraper *docker.Scraper
+	userStats     *userstats.Reader
 	cpuChart      Chart
 	memoryChart   Chart
 	requestChart  Chart
 	errorChart    Chart
 }
 
-func NewDashboardPanel(app *docker.Application, scraper *metrics.MetricsScraper, dockerScraper *docker.Scraper) DashboardPanel {
+func NewDashboardPanel(app *docker.Application, scraper *metrics.MetricsScraper, dockerScraper *docker.Scraper, userStats *userstats.Reader) DashboardPanel {
 	return DashboardPanel{
 		app:           *app,
 		scraper:       scraper,
 		dockerScraper: dockerScraper,
+		userStats:     userStats,
 		cpuChart:      NewChart("CPU", UnitPercent),
 		memoryChart:   NewChart("Memory", UnitBytes),
 		requestChart:  NewChart("Req/min", UnitCount),
@@ -55,6 +58,9 @@ func (p DashboardPanel) View(selected bool, toggling bool, width int, scales Das
 	url := Styles.Title.Hyperlink(p.app.URL()).Render(p.app.Settings.Host)
 	name := lipgloss.NewStyle().Foreground(Colors.Border).Render("(" + docker.NameFromImageRef(p.app.Settings.Image) + ")")
 	left := url + " " + name
+	if label := p.userStatsLabel(); label != "" {
+		left += " " + lipgloss.NewStyle().Foreground(Colors.Border).Render(label)
+	}
 	right := renderStateInfo(&p.app, toggling)
 	gap := max(innerWidth-1-lipgloss.Width(left)-lipgloss.Width(right), 1)
 	titleLine := " " + left + strings.Repeat(" ", gap) + right
@@ -123,6 +129,17 @@ func (p DashboardPanel) Height() int {
 }
 
 // Private
+
+func (p DashboardPanel) userStatsLabel() string {
+	if p.userStats == nil {
+		return ""
+	}
+	stats := p.userStats.Fetch(p.app.Settings.Name)
+	if stats == nil || (stats.UniqueUsers24h == 0 && stats.UniqueUsers7d == 0) {
+		return ""
+	}
+	return fmt.Sprintf("%d today · %d this week", stats.UniqueUsers24h, stats.UniqueUsers7d)
+}
 
 func (p DashboardPanel) renderTopTransition(selected bool, width int) string {
 	if !selected {

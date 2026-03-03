@@ -64,6 +64,10 @@ func RestoreNamespace(ctx context.Context, name string) (*Namespace, error) {
 	return ns, nil
 }
 
+func (n *Namespace) Name() string {
+	return n.name
+}
+
 func (n *Namespace) AddApplication(settings ApplicationSettings) *Application {
 	app := NewApplication(n, settings)
 	n.applications = append(n.applications, app)

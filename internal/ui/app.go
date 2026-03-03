@@ -12,6 +12,7 @@ import (
 	"github.com/basecamp/once/internal/docker"
 	"github.com/basecamp/once/internal/metrics"
 	"github.com/basecamp/once/internal/mouse"
+	"github.com/basecamp/once/internal/userstats"
 	"github.com/basecamp/once/internal/version"
 )
 
@@ -24,6 +25,7 @@ var appKeys = struct {
 type (
 	namespaceChangedMsg          struct{}
 	scrapeTickMsg                struct{}
+	scrapeUserStatsTickMsg       struct{}
 	scrapeDoneMsg                struct{}
 	NavigateToInstallMsg struct{}
 	NavigateToDashboardMsg struct {
@@ -58,6 +60,7 @@ type App struct {
 	namespace       *docker.Namespace
 	scraper         *metrics.MetricsScraper
 	dockerScraper   *docker.Scraper
+	userStats       *userstats.Reader
 	currentScreen   Component
 	lastSize        tea.WindowSizeMsg
 	eventChan       <-chan struct{}
@@ -86,9 +89,11 @@ func NewApp(ns *docker.Namespace, installImageRef string) *App {
 		BufferSize: ChartHistoryLength,
 	})
 
+	userStats := userstats.NewReader(ns.Name())
+
 	var screen Component
 	if len(apps) > 0 && installImageRef == "" {
-		screen = NewDashboard(ns, apps, 0, scraper, dockerScraper)
+		screen = NewDashboard(ns, apps, 0, scraper, dockerScraper, userStats)
 	} else {
 		screen = NewInstall(ns, installImageRef)
 	}
@@ -97,6 +102,7 @@ func NewApp(ns *docker.Namespace, installImageRef string) *App {
 		namespace:       ns,
 		scraper:         scraper,
 		dockerScraper:   dockerScraper,
+		userStats:       userStats,
 		currentScreen:   screen,
 		eventChan:       eventChan,
 		watchCtx:        ctx,
@@ -111,6 +117,8 @@ func (m *App) Init() tea.Cmd {
 		m.watchForChanges(),
 		m.runScrape(),
 		m.scheduleNextScrapeTick(),
+		m.runUserStatsScrape(),
+		m.scheduleNextUserStatsTick(),
 	)
 }
 
@@ -155,6 +163,12 @@ func (m *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scheduleNextScrapeTick(),
 		)
 
+	case scrapeUserStatsTickMsg:
+		return m, tea.Batch(
+			m.runUserStatsScrape(),
+			m.scheduleNextUserStatsTick(),
+		)
+
 	case scrapeDoneMsg:
 		var cmd tea.Cmd
 		m.currentScreen, cmd = m.currentScreen.Update(msg)
@@ -178,7 +192,7 @@ func (m *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
-		m.currentScreen = NewDashboard(m.namespace, apps, targetIndex, m.scraper, m.dockerScraper)
+		m.currentScreen = NewDashboard(m.namespace, apps, targetIndex, m.scraper, m.dockerScraper, m.userStats)
 		var sizeCmd tea.Cmd
 		m.currentScreen, sizeCmd = m.currentScreen.Update(m.lastSize)
 		return m, tea.Batch(sizeCmd, m.currentScreen.Init())
@@ -199,7 +213,7 @@ func (m *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
-		m.currentScreen = NewDashboard(m.namespace, apps, selectedIndex, m.scraper, m.dockerScraper)
+		m.currentScreen = NewDashboard(m.namespace, apps, selectedIndex, m.scraper, m.dockerScraper, m.userStats)
 		var sizeCmd tea.Cmd
 		m.currentScreen, sizeCmd = m.currentScreen.Update(m.lastSize)
 		return m, tea.Batch(sizeCmd, m.currentScreen.Init())
@@ -257,6 +271,10 @@ func (m *App) scheduleNextScrapeTick() tea.Cmd {
 	return tea.Every(ChartUpdateInterval, func(time.Time) tea.Msg { return scrapeTickMsg{} })
 }
 
+func (m *App) scheduleNextUserStatsTick() tea.Cmd {
+	return tea.Every(UserStatsUpdateInterval, func(time.Time) tea.Msg { return scrapeUserStatsTickMsg{} })
+}
+
 func (m *App) shutdown() {
 	m.watchCancel()
 }
@@ -264,16 +282,16 @@ func (m *App) shutdown() {
 func (m *App) runScrape() tea.Cmd {
 	return func() tea.Msg {
 		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			m.scraper.Scrape(m.watchCtx)
-		}()
-		go func() {
-			defer wg.Done()
-			m.dockerScraper.Scrape(m.watchCtx)
-		}()
+		wg.Go(func() { m.scraper.Scrape(m.watchCtx) })
+		wg.Go(func() { m.dockerScraper.Scrape(m.watchCtx) })
 		wg.Wait()
+		return scrapeDoneMsg{}
+	}
+}
+
+func (m *App) runUserStatsScrape() tea.Cmd {
+	return func() tea.Msg {
+		m.userStats.Scrape(m.watchCtx)
 		return scrapeDoneMsg{}
 	}
 }

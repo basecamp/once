@@ -188,7 +188,7 @@ func testDashboard(numApps int) Dashboard {
 	scraper := metrics.NewMetricsScraper(metrics.ScraperSettings{})
 	dockerScraper := &docker.Scraper{}
 
-	return NewDashboard(nil, apps, 0, scraper, dockerScraper)
+	return NewDashboard(nil, apps, 0, scraper, dockerScraper, nil)
 }
 
 func updateDashboard(d Dashboard, msg tea.Msg) (Dashboard, tea.Cmd) {
