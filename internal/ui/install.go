@@ -38,19 +38,26 @@ type Install struct {
 }
 
 func NewInstall(ns *docker.Namespace, imageRef string) *Install {
-	return &Install{
+	m := &Install{
 		namespace: ns,
 		help:      NewHelp(),
 		state:     installStateForm,
 		form:      NewInstallForm(imageRef),
-		starfield: NewStarfield(),
-		logo:      NewLogo(),
 		cliMode:   imageRef != "",
 	}
+	if m.showLogo() {
+		m.starfield = NewStarfield()
+		m.logo = NewLogo()
+	}
+	return m
 }
 
 func (m *Install) Init() tea.Cmd {
-	return tea.Batch(m.form.Init(), m.starfield.Init(), m.logo.Init())
+	cmds := []tea.Cmd{m.form.Init()}
+	if m.showLogo() {
+		cmds = append(cmds, m.starfield.Init(), m.logo.Init())
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *Install) Update(msg tea.Msg) tea.Cmd {
@@ -58,7 +65,10 @@ func (m *Install) Update(msg tea.Msg) tea.Cmd {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.help.SetWidth(m.width)
-		cmds := []tea.Cmd{m.starfield.Update(tea.WindowSizeMsg{Width: m.width, Height: m.middleHeight()})}
+		var cmds []tea.Cmd
+		if m.starfield != nil {
+			cmds = append(cmds, m.starfield.Update(tea.WindowSizeMsg{Width: m.width, Height: m.middleHeight()}))
+		}
 		if m.state == installStateForm {
 			cmds = append(cmds, m.form.Update(msg))
 		} else {
@@ -67,10 +77,13 @@ func (m *Install) Update(msg tea.Msg) tea.Cmd {
 		return tea.Batch(cmds...)
 
 	case starfieldTickMsg:
-		return m.starfield.Update(msg)
+		if m.starfield != nil {
+			return m.starfield.Update(msg)
+		}
+		return nil
 
 	case logoShineStartMsg, logoShineStepMsg:
-		if m.state == installStateForm {
+		if m.showLogo() && m.state == installStateForm {
 			return m.logo.Update(msg)
 		}
 		return nil
@@ -105,7 +118,10 @@ func (m *Install) Update(msg tea.Msg) tea.Cmd {
 		m.state = installStateForm
 		m.activity = nil
 		m.err = msg.Err
-		return m.logo.Init()
+		if m.showLogo() {
+			return m.logo.Init()
+		}
+		return nil
 
 	case InstallActivityDoneMsg:
 		return func() tea.Msg { return NavigateToAppMsg(msg) }
@@ -121,8 +137,6 @@ func (m *Install) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (m *Install) View() string {
-	titleLine := Styles.TitleRule(m.width, "install")
-
 	var contentView string
 	if m.state == installStateForm {
 		formView := m.form.View()
@@ -130,7 +144,11 @@ func (m *Install) View() string {
 			errorLine := lipgloss.NewStyle().Foreground(Colors.Error).Render("Error: " + m.err.Error())
 			formView = lipgloss.JoinVertical(lipgloss.Center, errorLine, "", formView)
 		}
-		contentView = lipgloss.JoinVertical(lipgloss.Center, m.logo.View(), "", formView)
+		if m.showLogo() {
+			contentView = lipgloss.JoinVertical(lipgloss.Center, m.logo.View(), "", formView)
+		} else {
+			contentView = formView
+		}
 	} else {
 		contentView = m.activity.View()
 	}
@@ -141,16 +159,28 @@ func (m *Install) View() string {
 		helpLine = Styles.CenteredLine(m.width, helpView)
 	}
 
-	middle := m.renderMiddle(contentView, m.middleHeight())
+	if m.starfield != nil {
+		middle := m.renderMiddleWithStarfield(contentView, m.middleHeight())
+		return middle + helpLine
+	}
 
+	middle := m.renderMiddleCentered(contentView, m.middleHeight())
+	titleLine := Styles.TitleRule(m.width, "install")
 	return titleLine + "\n\n" + middle + helpLine
 }
 
 // Private
 
+func (m *Install) showLogo() bool {
+	return m.namespace == nil || len(m.namespace.Applications()) == 0
+}
+
 func (m *Install) middleHeight() int {
+	helpHeight := 1 // help line when in form state
+	if m.starfield != nil {
+		return max(m.height-helpHeight, 0)
+	}
 	titleHeight := 2 // title + blank line
-	helpHeight := 1  // help line when in form state
 	return max(m.height-titleHeight-helpHeight, 0)
 }
 
@@ -164,8 +194,17 @@ func (m *Install) cancelFromScreen() tea.Cmd {
 	return func() tea.Msg { return NavigateToDashboardMsg{} }
 }
 
-// renderMiddle composites the content view over the starfield background.
-func (m *Install) renderMiddle(contentView string, middleHeight int) string {
+func (m *Install) renderMiddleCentered(contentView string, middleHeight int) string {
+	centered := lipgloss.NewStyle().
+		Width(m.width).
+		Height(middleHeight).
+		Align(lipgloss.Center, lipgloss.Center).
+		Render(contentView)
+	return centered
+}
+
+// renderMiddleWithStarfield composites the content view over the starfield background.
+func (m *Install) renderMiddleWithStarfield(contentView string, middleHeight int) string {
 	m.starfield.ComputeGrid()
 
 	fgLines := strings.Split(contentView, "\n")

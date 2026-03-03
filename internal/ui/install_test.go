@@ -122,10 +122,54 @@ func TestInstall_CancelQuitsWhenImageRefSet(t *testing.T) {
 	assert.True(t, ok, "expected QuitMsg, got %T", msg)
 }
 
+func TestInstall_ShowsLogoAndHidesTitleWhenNoApps(t *testing.T) {
+	m := NewInstall(nil, "")
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+
+	view := m.View()
+	assert.Contains(t, view, "██████╗")
+	assert.NotContains(t, view, "ONCE · install")
+}
+
+func TestInstall_ShowsTitleAndHidesLogoWhenAppsExist(t *testing.T) {
+	ns := newTestNamespace("myapp")
+	m := NewInstall(ns, "")
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+
+	view := m.View()
+	assert.NotContains(t, view, "██████╗")
+	assert.Contains(t, view, "ONCE · install")
+}
+
+func TestInstall_FailureRestartsLogoOnlyWhenNoApps(t *testing.T) {
+	noApps := NewInstall(nil, "")
+	noApps.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+	noApps.Update(InstallFormSubmitMsg{ImageRef: "nginx:latest", Hostname: "app.example.com"})
+	cmd := noApps.Update(InstallActivityFailedMsg{Err: errors.New("fail")})
+	assert.NotNil(t, cmd)
+
+	withApps := NewInstall(newTestNamespace("myapp"), "")
+	withApps.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+	withApps.Update(InstallFormSubmitMsg{ImageRef: "nginx:latest", Hostname: "app.example.com"})
+	cmd = withApps.Update(InstallActivityFailedMsg{Err: errors.New("fail")})
+	assert.Nil(t, cmd)
+}
+
 // Helpers
 
 func newTestInstall() *Install {
 	return NewInstall(nil, "")
+}
+
+func newTestNamespace(appNames ...string) *docker.Namespace {
+	ns, err := docker.NewNamespace("test")
+	if err != nil {
+		panic(err)
+	}
+	for _, name := range appNames {
+		ns.AddApplication(docker.ApplicationSettings{Name: name})
+	}
+	return ns
 }
 
 func fillInstallForm(form *InstallForm, imageRef, hostname string) {
