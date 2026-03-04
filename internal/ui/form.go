@@ -3,6 +3,7 @@ package ui
 import (
 	"strconv"
 	"strings"
+	"unicode"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
@@ -67,12 +68,8 @@ func (f *TextField) SetEchoPassword() {
 func (f *TextField) Update(msg tea.Msg) tea.Cmd {
 	if f.digitsOnly {
 		if msg, ok := msg.(tea.KeyPressMsg); ok {
-			k := msg.Key()
-			if k.Text != "" {
-				r := []rune(k.Text)[0]
-				if r < '0' || r > '9' {
-					return nil
-				}
+			if k := msg.Key(); k.Text != "" && !isDigitKey(k) {
+				return nil
 			}
 		}
 	}
@@ -515,4 +512,8 @@ func (f Form) totalCount() int {
 
 func fieldTarget(i int) string {
 	return "field:" + strconv.Itoa(i)
+}
+
+func isDigitKey(k tea.Key) bool {
+	return unicode.IsDigit(rune(k.Text[0]))
 }
