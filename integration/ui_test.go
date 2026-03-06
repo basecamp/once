@@ -38,10 +38,14 @@ func TestUIInstallAndManageApp(t *testing.T) {
 	d.send(keyMsg("up"))
 	d.send(keyMsg("enter"))
 
+	d.waitForView("Image", 5*time.Second)
+
 	// -- Screen 2: Image form --
 	d.typeText("ghcr.io/basecamp/once-campfire:main")
 	d.send(keyMsg("tab"))
 	d.send(keyMsg("enter"))
+
+	d.waitForView("Hostname", 5*time.Second)
 
 	// -- Screen 3: Hostname form --
 	d.typeText("chat.localhost")
