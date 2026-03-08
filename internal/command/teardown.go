@@ -14,7 +14,7 @@ type TeardownCommand struct {
 	removeData bool
 }
 
-func NewTeardownCommand(root *RootCommand) *TeardownCommand {
+func NewTeardownCommand() *TeardownCommand {
 	t := &TeardownCommand{}
 	t.cmd = &cobra.Command{
 		Use:   "teardown",

@@ -14,7 +14,7 @@ type BackgroundUninstallCommand struct {
 	cmd *cobra.Command
 }
 
-func NewBackgroundUninstallCommand(root *RootCommand) *BackgroundUninstallCommand {
+func NewBackgroundUninstallCommand() *BackgroundUninstallCommand {
 	b := &BackgroundUninstallCommand{}
 	b.cmd = &cobra.Command{
 		Use:   "uninstall",
@@ -45,7 +45,7 @@ func (b *BackgroundUninstallCommand) run(cmd *cobra.Command, args []string) erro
 		return err
 	}
 
-	serviceName := namespace + "-background"
+	serviceName := namespace + backgroundServiceSuffix
 
 	if !svc.IsInstalled(serviceName) {
 		fmt.Printf("Service %s is not installed\n", svc.ServiceName(serviceName))

@@ -15,7 +15,9 @@ type BackgroundInstallCommand struct {
 	cmd *cobra.Command
 }
 
-func NewBackgroundInstallCommand(root *RootCommand) *BackgroundInstallCommand {
+const backgroundServiceSuffix = "-background"
+
+func NewBackgroundInstallCommand() *BackgroundInstallCommand {
 	b := &BackgroundInstallCommand{}
 	b.cmd = &cobra.Command{
 		Use:   "install",
@@ -51,7 +53,7 @@ func (b *BackgroundInstallCommand) run(cmd *cobra.Command, args []string) error 
 		return err
 	}
 
-	serviceName := namespace + "-background"
+	serviceName := namespace + backgroundServiceSuffix
 
 	if svc.IsInstalled(serviceName) {
 		fmt.Printf("Service %s is already installed\n", svc.ServiceName(serviceName))

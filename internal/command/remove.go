@@ -14,7 +14,7 @@ type RemoveCommand struct {
 	removeData bool
 }
 
-func NewRemoveCommand(root *RootCommand) *RemoveCommand {
+func NewRemoveCommand() *RemoveCommand {
 	r := &RemoveCommand{}
 	r.cmd = &cobra.Command{
 		Use:     "remove <app>",
@@ -37,13 +37,11 @@ func (r *RemoveCommand) run(ns *docker.Namespace, cmd *cobra.Command, args []str
 	ctx := context.Background()
 	appName := args[0]
 
-	app := ns.Application(appName)
-	if app == nil {
-		return fmt.Errorf("application %q not found", appName)
-	}
-
-	if err := app.Remove(ctx, r.removeData); err != nil {
-		return fmt.Errorf("removing application: %w", err)
+	err := withApplication(ns, appName, "removing", func(app *docker.Application) error {
+		return app.Remove(ctx, r.removeData)
+	})
+	if err != nil {
+		return err
 	}
 
 	fmt.Printf("Removed %s\n", appName)

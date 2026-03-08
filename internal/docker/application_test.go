@@ -265,6 +265,21 @@ func TestURL(t *testing.T) {
 	})
 }
 
+func TestBackupName(t *testing.T) {
+	app := &Application{
+		Settings: ApplicationSettings{Name: "myapp"},
+	}
+
+	name := app.BackupName()
+	assert.Contains(t, name, "myapp-")
+	assert.True(t, len(name) > len("myapp-.tar.gz"))
+	assert.Contains(t, name, ".tar.gz")
+
+	// Verify the embedded timestamp is parseable
+	_, ok := parseBackupTime("myapp", name)
+	assert.True(t, ok)
+}
+
 func TestParseBackupTime(t *testing.T) {
 	t.Run("valid backup name", func(t *testing.T) {
 		ts, ok := parseBackupTime("myapp", "myapp-20250115-093000.tar.gz")

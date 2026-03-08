@@ -14,7 +14,7 @@ type BackupCommand struct {
 	cmd *cobra.Command
 }
 
-func NewBackupCommand(root *RootCommand) *BackupCommand {
+func NewBackupCommand() *BackupCommand {
 	b := &BackupCommand{}
 	b.cmd = &cobra.Command{
 		Use:   "backup <app> <filename>",
@@ -36,16 +36,14 @@ func (b *BackupCommand) run(ns *docker.Namespace, cmd *cobra.Command, args []str
 	appName := args[0]
 	filename := args[1]
 
-	app := ns.Application(appName)
-	if app == nil {
-		return fmt.Errorf("application %q not found", appName)
-	}
-
 	dir := filepath.Dir(filename)
 	name := filepath.Base(filename)
 
-	if err := app.BackupToFile(ctx, dir, name); err != nil {
-		return fmt.Errorf("backing up application: %w", err)
+	err := withApplication(ns, appName, "backing up", func(app *docker.Application) error {
+		return app.BackupToFile(ctx, dir, name)
+	})
+	if err != nil {
+		return err
 	}
 
 	fmt.Printf("Backed up %s to %s\n", appName, filename)

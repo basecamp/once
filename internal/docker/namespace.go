@@ -282,7 +282,7 @@ func (n *Namespace) restoreState(ctx context.Context) error {
 			name = strings.TrimPrefix(name, "/")
 
 			if name == proxyPrefix {
-				label := c.Labels["once"]
+				label := c.Labels[labelKey]
 				if label != "" {
 					settings, err := UnmarshalProxySettings(label)
 					if err != nil {
@@ -294,7 +294,7 @@ func (n *Namespace) restoreState(ctx context.Context) error {
 			}
 
 			if strings.HasPrefix(name, appPrefix) {
-				label := c.Labels["once"]
+				label := c.Labels[labelKey]
 				if label != "" {
 					settings, err := UnmarshalApplicationSettings(label)
 					if err != nil {
@@ -363,7 +363,7 @@ func (n *Namespace) parseBackup(r io.Reader) (ApplicationSettings, ApplicationVo
 		}
 
 		switch header.Name {
-		case "once.application.json":
+		case backupAppSettingsEntry:
 			data, err := io.ReadAll(tr)
 			if err != nil {
 				return appSettings, volSettings, nil, fmt.Errorf("%w: reading application settings: %v", ErrInvalidBackup, err)
@@ -374,7 +374,7 @@ func (n *Namespace) parseBackup(r io.Reader) (ApplicationSettings, ApplicationVo
 			}
 			foundApp = true
 
-		case "once.volume.json":
+		case backupVolSettingsEntry:
 			data, err := io.ReadAll(tr)
 			if err != nil {
 				return appSettings, volSettings, nil, fmt.Errorf("%w: reading volume settings: %v", ErrInvalidBackup, err)

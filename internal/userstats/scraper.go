@@ -16,7 +16,14 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 )
 
-const flushInterval = time.Minute
+const (
+	flushInterval      = time.Minute
+	connectedThreshold = 5 * time.Second
+	maxRetryDelay      = 30 * time.Second
+	initialFlushDelay  = 10 * time.Second
+	scannerBufSize     = 64 * 1024
+	scannerMaxSize     = 1024 * 1024
+)
 
 type dockerClient interface {
 	copyClient
@@ -72,13 +79,13 @@ func (s *Scraper) run(ctx context.Context, c dockerClient) {
 	for {
 		start := time.Now()
 		s.streamLogs(ctx, c)
-		connected := time.Since(start) >= 5*time.Second
+		connected := time.Since(start) >= connectedThreshold
 
 		if connected {
 			s.flush(ctx, c)
 			retryDelay = time.Second
 		} else {
-			retryDelay = min(retryDelay*2, 30*time.Second)
+			retryDelay = min(retryDelay*2, maxRetryDelay)
 		}
 
 		select {
@@ -153,7 +160,7 @@ func (s *Scraper) flushLoop(ctx context.Context, c copyClient) {
 	select {
 	case <-ctx.Done():
 		return
-	case <-time.After(10 * time.Second):
+	case <-time.After(initialFlushDelay):
 		s.flush(ctx, c)
 	}
 
@@ -196,7 +203,7 @@ func (s *Scraper) demuxAndScan(ctx context.Context, reader io.Reader) {
 
 func (s *Scraper) scanLines(ctx context.Context, reader io.Reader) {
 	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, scannerBufSize), scannerMaxSize)
 
 	for scanner.Scan() {
 		s.processLine(scanner.Bytes())

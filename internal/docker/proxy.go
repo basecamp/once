@@ -18,7 +18,10 @@ import (
 	"github.com/docker/go-connections/nat"
 )
 
-const proxyImage = "basecamp/kamal-proxy"
+const (
+	proxyImage = "basecamp/kamal-proxy"
+	labelKey   = "once"
+)
 
 const (
 	stateFileDir  = "/home/kamal-proxy/.config/kamal-proxy"
@@ -84,7 +87,7 @@ func (p *Proxy) Boot(ctx context.Context, settings ProxySettings) error {
 	defer reader.Close()
 	_, _ = io.Copy(io.Discard, reader)
 
-	containerName := p.namespace.name + "-proxy"
+	name := p.containerName()
 	metricsPortTCP := nat.Port(fmt.Sprintf("%d/tcp", settings.MetricsPort))
 
 	resp, err := p.namespace.client.ContainerCreate(ctx,
@@ -92,7 +95,7 @@ func (p *Proxy) Boot(ctx context.Context, settings ProxySettings) error {
 			Image: proxyImage,
 			Cmd:   []string{"kamal-proxy", "run", "--metrics-port", fmt.Sprintf("%d", settings.MetricsPort)},
 			Labels: map[string]string{
-				"once": settings.Marshal(),
+				labelKey: settings.Marshal(),
 			},
 			ExposedPorts: nat.PortSet{
 				"80/tcp":       struct{}{},
@@ -111,7 +114,7 @@ func (p *Proxy) Boot(ctx context.Context, settings ProxySettings) error {
 			Mounts: []mount.Mount{
 				{
 					Type:   mount.TypeVolume,
-					Source: p.namespace.name + "-proxy",
+					Source: name,
 					Target: "/home/kamal-proxy/.config/kamal-proxy",
 				},
 			},
@@ -122,7 +125,7 @@ func (p *Proxy) Boot(ctx context.Context, settings ProxySettings) error {
 			},
 		},
 		nil,
-		containerName,
+		name,
 	)
 	if err != nil {
 		return fmt.Errorf("creating proxy container: %w", err)
@@ -137,7 +140,7 @@ func (p *Proxy) Boot(ctx context.Context, settings ProxySettings) error {
 }
 
 func (p *Proxy) Destroy(ctx context.Context, destroyVolumes bool) error {
-	containerName := p.namespace.name + "-proxy"
+	containerName := p.containerName()
 
 	if err := p.namespace.client.ContainerRemove(ctx, containerName, container.RemoveOptions{Force: true}); err != nil {
 		if !errdefs.IsNotFound(err) {
@@ -146,8 +149,7 @@ func (p *Proxy) Destroy(ctx context.Context, destroyVolumes bool) error {
 	}
 
 	if destroyVolumes {
-		volumeName := p.namespace.name + "-proxy"
-		if err := p.namespace.client.VolumeRemove(ctx, volumeName, true); err != nil {
+		if err := p.namespace.client.VolumeRemove(ctx, containerName, true); err != nil {
 			if !errdefs.IsNotFound(err) {
 				return fmt.Errorf("removing proxy volume: %w", err)
 			}
@@ -174,6 +176,10 @@ func (p *Proxy) Deploy(ctx context.Context, opts DeployOptions) error {
 	return p.Exec(ctx, p.deployArgs(opts))
 }
 
+func (p *Proxy) containerName() string {
+	return p.namespace.name + "-proxy"
+}
+
 // Private
 
 func (p *Proxy) deployArgs(opts DeployOptions) []string {
@@ -191,7 +197,7 @@ func (p *Proxy) deployArgs(opts DeployOptions) []string {
 }
 
 func (p *Proxy) LoadState(ctx context.Context) (*State, error) {
-	containerName := p.namespace.name + "-proxy"
+	containerName := p.containerName()
 
 	reader, _, err := p.namespace.client.CopyFromContainer(ctx, containerName, stateFilePath)
 	if err != nil {
@@ -217,7 +223,7 @@ func (p *Proxy) LoadState(ctx context.Context) (*State, error) {
 }
 
 func (p *Proxy) SaveState(ctx context.Context, state *State) error {
-	containerName := p.namespace.name + "-proxy"
+	containerName := p.containerName()
 
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
@@ -250,7 +256,7 @@ func (p *Proxy) SaveState(ctx context.Context, state *State) error {
 }
 
 func (p *Proxy) ExecOutput(ctx context.Context, cmd []string) (string, error) {
-	containerName := p.namespace.name + "-proxy"
+	containerName := p.containerName()
 	execResp, err := p.namespace.client.ContainerExecCreate(ctx, containerName, container.ExecOptions{
 		Cmd:          cmd,
 		AttachStdout: true,

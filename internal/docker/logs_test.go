@@ -153,6 +153,16 @@ func TestLogStreamerStderrFlag(t *testing.T) {
 	assert.False(t, lines[2].IsStderr)
 }
 
+func TestLogStreamerSettingsDefaults(t *testing.T) {
+	settings := LogStreamerSettings{}
+	settings = settings.withDefaults()
+	assert.Equal(t, DefaultLogBufferSize, settings.BufferSize)
+
+	custom := LogStreamerSettings{BufferSize: 500}
+	custom = custom.withDefaults()
+	assert.Equal(t, 500, custom.BufferSize)
+}
+
 func TestLogStreamerScanLinesTTY(t *testing.T) {
 	client := &mockLogsClient{
 		logs:  "line one\nline two\nline three\n",

@@ -13,7 +13,7 @@ type StartCommand struct {
 	cmd *cobra.Command
 }
 
-func NewStartCommand(root *RootCommand) *StartCommand {
+func NewStartCommand() *StartCommand {
 	s := &StartCommand{}
 	s.cmd = &cobra.Command{
 		Use:   "start <app>",
@@ -34,13 +34,11 @@ func (s *StartCommand) run(ns *docker.Namespace, cmd *cobra.Command, args []stri
 	ctx := context.Background()
 	appName := args[0]
 
-	app := ns.Application(appName)
-	if app == nil {
-		return fmt.Errorf("application %q not found", appName)
-	}
-
-	if err := app.Start(ctx); err != nil {
-		return fmt.Errorf("starting application: %w", err)
+	err := withApplication(ns, appName, "starting", func(app *docker.Application) error {
+		return app.Start(ctx)
+	})
+	if err != nil {
+		return err
 	}
 
 	fmt.Printf("Started %s\n", appName)

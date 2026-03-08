@@ -44,6 +44,11 @@ const (
 	BackupDataDir         = "data"
 	BackupRetention       = 30 * 24 * time.Hour
 	AutomaticTaskInterval = 24 * time.Hour
+
+	backupAppSettingsEntry = "once.application.json"
+	backupVolSettingsEntry = "once.volume.json"
+	backupTimeFormat       = "20060102-150405"
+	httpVerifyTimeout      = 30 * time.Second
 )
 
 // AppVolumeMountTargets defines the paths where the app data volume is mounted
@@ -327,7 +332,7 @@ func (a *Application) Backup(ctx context.Context) error {
 }
 
 func (a *Application) BackupName() string {
-	return fmt.Sprintf("%s-%s.tar.gz", a.Settings.Name, time.Now().Format("20060102-150405"))
+	return fmt.Sprintf("%s-%s.tar.gz", a.Settings.Name, time.Now().Format(backupTimeFormat))
 }
 
 func (a *Application) BackupToFile(ctx context.Context, dir string, name string) error {
@@ -370,7 +375,7 @@ func (a *Application) VerifyHTTP(ctx context.Context) error {
 		return nil
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: httpVerifyTimeout}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrVerificationFailed, err)
@@ -498,11 +503,11 @@ func (a *Application) backupToWriter(ctx context.Context, w io.Writer) error {
 	tw := tar.NewWriter(gw)
 	defer tw.Close()
 
-	if err := writeTarEntry(tw, "once.application.json", []byte(a.Settings.Marshal())); err != nil {
+	if err := writeTarEntry(tw, backupAppSettingsEntry, []byte(a.Settings.Marshal())); err != nil {
 		return fmt.Errorf("writing application settings: %w", err)
 	}
 
-	if err := writeTarEntry(tw, "once.volume.json", []byte(vol.Settings.Marshal())); err != nil {
+	if err := writeTarEntry(tw, backupVolSettingsEntry, []byte(vol.Settings.Marshal())); err != nil {
 		return fmt.Errorf("writing volume settings: %w", err)
 	}
 
@@ -713,7 +718,7 @@ func (a *Application) containerConfig(env []string) *container.Config {
 	return &container.Config{
 		Image: a.Settings.Image,
 		Labels: map[string]string{
-			"once": a.Settings.Marshal(),
+			labelKey: a.Settings.Marshal(),
 		},
 		Env: env,
 	}
@@ -847,7 +852,7 @@ func parseBackupTime(appName, filename string) (time.Time, bool) {
 	middle := strings.TrimPrefix(filename, prefix)
 	middle = strings.TrimSuffix(middle, suffix)
 
-	t, err := time.Parse("20060102-150405", middle)
+	t, err := time.Parse(backupTimeFormat, middle)
 	if err != nil {
 		return time.Time{}, false
 	}

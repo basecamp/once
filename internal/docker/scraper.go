@@ -22,9 +22,11 @@ type ScraperSettings struct {
 	BufferSize int
 }
 
+const defaultStatBufferSize = 200
+
 func (s ScraperSettings) withDefaults() ScraperSettings {
 	if s.BufferSize == 0 {
-		s.BufferSize = 200
+		s.BufferSize = defaultStatBufferSize
 	}
 	return s
 }
@@ -208,7 +210,7 @@ func (s *Scraper) runStream(ctx context.Context, appName, containerID string) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(time.Second):
+		case <-time.After(streamRetryDelay):
 			// Retry after brief delay if stream disconnected
 		}
 	}

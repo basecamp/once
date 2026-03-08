@@ -13,7 +13,7 @@ type StopCommand struct {
 	cmd *cobra.Command
 }
 
-func NewStopCommand(root *RootCommand) *StopCommand {
+func NewStopCommand() *StopCommand {
 	s := &StopCommand{}
 	s.cmd = &cobra.Command{
 		Use:   "stop <app>",
@@ -34,13 +34,11 @@ func (s *StopCommand) run(ns *docker.Namespace, cmd *cobra.Command, args []strin
 	ctx := context.Background()
 	appName := args[0]
 
-	app := ns.Application(appName)
-	if app == nil {
-		return fmt.Errorf("application %q not found", appName)
-	}
-
-	if err := app.Stop(ctx); err != nil {
-		return fmt.Errorf("stopping application: %w", err)
+	err := withApplication(ns, appName, "stopping", func(app *docker.Application) error {
+		return app.Stop(ctx)
+	})
+	if err != nil {
+		return err
 	}
 
 	fmt.Printf("Stopped %s\n", appName)

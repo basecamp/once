@@ -21,6 +21,8 @@ type Sample struct {
 	DiskErr    error
 }
 
+const defaultBufferSize = 200
+
 type ScraperSettings struct {
 	BufferSize   int
 	DiskPath     string
@@ -29,7 +31,7 @@ type ScraperSettings struct {
 
 func (s ScraperSettings) withDefaults() ScraperSettings {
 	if s.BufferSize == 0 {
-		s.BufferSize = 200
+		s.BufferSize = defaultBufferSize
 	}
 	if s.DiskFallback == "" {
 		s.DiskFallback = "/"

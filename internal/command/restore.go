@@ -14,7 +14,7 @@ type RestoreCommand struct {
 	cmd *cobra.Command
 }
 
-func NewRestoreCommand(root *RootCommand) *RestoreCommand {
+func NewRestoreCommand() *RestoreCommand {
 	r := &RestoreCommand{}
 	r.cmd = &cobra.Command{
 		Use:   "restore <filename>",

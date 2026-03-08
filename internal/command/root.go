@@ -49,17 +49,17 @@ func NewRootCommand() *RootCommand {
 
 	r.cmd.Flags().StringVar(&r.installImageRef, "install", "", "Path to Docker image to install")
 
-	r.cmd.AddCommand(NewBackgroundCommand(r).Command())
-	r.cmd.AddCommand(NewBackupCommand(r).Command())
-	r.cmd.AddCommand(NewDeployCommand(r).Command())
-	r.cmd.AddCommand(NewListCommand(r).Command())
-	r.cmd.AddCommand(NewRemoveCommand(r).Command())
-	r.cmd.AddCommand(NewRestoreCommand(r).Command())
-	r.cmd.AddCommand(NewStartCommand(r).Command())
-	r.cmd.AddCommand(NewStopCommand(r).Command())
-	r.cmd.AddCommand(NewTeardownCommand(r).Command())
-	r.cmd.AddCommand(NewUpdateCommand(r).Command())
-	r.cmd.AddCommand(NewVersionCommand(r).Command())
+	r.cmd.AddCommand(NewBackgroundCommand().Command())
+	r.cmd.AddCommand(NewBackupCommand().Command())
+	r.cmd.AddCommand(NewDeployCommand().Command())
+	r.cmd.AddCommand(NewListCommand().Command())
+	r.cmd.AddCommand(NewRemoveCommand().Command())
+	r.cmd.AddCommand(NewRestoreCommand().Command())
+	r.cmd.AddCommand(NewStartCommand().Command())
+	r.cmd.AddCommand(NewStopCommand().Command())
+	r.cmd.AddCommand(NewTeardownCommand().Command())
+	r.cmd.AddCommand(NewUpdateCommand().Command())
+	r.cmd.AddCommand(NewVersionCommand().Command())
 
 	return r
 }
@@ -71,6 +71,19 @@ func (r *RootCommand) Execute() error {
 // Helpers
 
 type NamespaceRunE func(ns *docker.Namespace, cmd *cobra.Command, args []string) error
+
+func withApplication(ns *docker.Namespace, name string, action string, fn func(*docker.Application) error) error {
+	app := ns.Application(name)
+	if app == nil {
+		return fmt.Errorf("application %q not found", name)
+	}
+
+	if err := fn(app); err != nil {
+		return fmt.Errorf("%s application: %w", action, err)
+	}
+
+	return nil
+}
 
 func WithNamespace(fn NamespaceRunE) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {

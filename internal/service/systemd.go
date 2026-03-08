@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 )
 
+const systemdUnitDir = "/etc/systemd/system"
+
 const unitTemplate = `[Unit]
 Description=Once background tasks (%s)
 After=network.target docker.service
@@ -86,5 +88,5 @@ func (s *Systemd) systemctl(ctx context.Context, args ...string) error {
 }
 
 func (s *Systemd) unitFilePath(name string) string {
-	return filepath.Join("/etc/systemd/system", name+".service")
+	return filepath.Join(systemdUnitDir, name+".service")
 }

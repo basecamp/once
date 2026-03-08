@@ -10,6 +10,11 @@ import (
 	"path/filepath"
 )
 
+const (
+	launchdDir  = "/Library/LaunchDaemons"
+	labelPrefix = "com.basecamp."
+)
+
 const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -77,7 +82,7 @@ func (l *Launchd) ServiceName(name string) string {
 // Private
 
 func (l *Launchd) label(name string) string {
-	return "com.basecamp." + name
+	return labelPrefix + name
 }
 
 func (l *Launchd) launchctl(ctx context.Context, args ...string) error {
@@ -91,5 +96,5 @@ func (l *Launchd) launchctl(ctx context.Context, args ...string) error {
 }
 
 func (l *Launchd) plistPath(name string) string {
-	return filepath.Join("/Library/LaunchDaemons", l.label(name)+".plist")
+	return filepath.Join(launchdDir, l.label(name)+".plist")
 }

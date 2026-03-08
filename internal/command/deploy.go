@@ -14,7 +14,7 @@ type DeployCommand struct {
 	host string
 }
 
-func NewDeployCommand(root *RootCommand) *DeployCommand {
+func NewDeployCommand() *DeployCommand {
 	d := &DeployCommand{}
 	d.cmd = &cobra.Command{
 		Use:   "deploy <image>",

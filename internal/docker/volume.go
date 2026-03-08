@@ -63,7 +63,7 @@ func FindVolume(ctx context.Context, ns *Namespace, name string) (*ApplicationVo
 		return nil, fmt.Errorf("inspecting volume: %w", err)
 	}
 
-	label := vol.Labels["once"]
+	label := vol.Labels[labelKey]
 	if label == "" {
 		return nil, fmt.Errorf("volume %s exists but has no once label", volumeName)
 	}
@@ -86,7 +86,7 @@ func CreateVolume(ctx context.Context, ns *Namespace, name string, settings Appl
 	_, err := ns.client.VolumeCreate(ctx, volume.CreateOptions{
 		Name: volumeName,
 		Labels: map[string]string{
-			"once": settings.Marshal(),
+			labelKey: settings.Marshal(),
 		},
 	})
 	if err != nil {

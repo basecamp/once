@@ -12,7 +12,11 @@ import (
 	"time"
 )
 
-const githubReleasesURL = "https://api.github.com/repos/basecamp/once/releases/latest"
+const (
+	githubReleasesURL = "https://api.github.com/repos/basecamp/once/releases/latest"
+	httpTimeout       = 30 * time.Second
+	updateTempFile    = ".once-update-tmp"
+)
 
 type Updater struct {
 	currentVersion string
@@ -22,7 +26,7 @@ type Updater struct {
 }
 
 func NewUpdater() *Updater {
-	u := newUpdater(Version, githubReleasesURL, &http.Client{Timeout: 30 * time.Second})
+	u := newUpdater(Version, githubReleasesURL, &http.Client{Timeout: httpTimeout})
 	u.githubToken = os.Getenv("GITHUB_TOKEN")
 	return u
 }
@@ -65,7 +69,7 @@ func (u *Updater) UpdateBinary() error {
 		return fmt.Errorf("finding executable path: %w", err)
 	}
 
-	tmpFile := filepath.Join(filepath.Dir(execPath), ".once-update-tmp")
+	tmpFile := filepath.Join(filepath.Dir(execPath), updateTempFile)
 	if err := u.downloadBinary(downloadURL, tmpFile); err != nil {
 		return err
 	}

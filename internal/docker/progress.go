@@ -8,6 +8,13 @@ import (
 	"github.com/docker/docker/pkg/jsonmessage"
 )
 
+const (
+	statusDownloading      = "Downloading"
+	statusDownloadComplete = "Download complete"
+	statusPullComplete     = "Pull complete"
+	statusAlreadyExists    = "Already exists"
+)
+
 type DeployStage int
 
 const (
@@ -74,14 +81,14 @@ func (t *pullProgressTracker) processMessage(msg jsonmessage.JSONMessage) {
 	}
 
 	switch msg.Status {
-	case "Downloading":
+	case statusDownloading:
 		if msg.Progress != nil {
 			if msg.Progress.Total > 0 {
 				layer.total = msg.Progress.Total
 			}
 			layer.current = msg.Progress.Current
 		}
-	case "Download complete", "Pull complete", "Already exists":
+	case statusDownloadComplete, statusPullComplete, statusAlreadyExists:
 		if layer.total > 0 {
 			layer.current = layer.total
 		}

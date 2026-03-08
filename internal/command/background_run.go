@@ -14,7 +14,7 @@ type BackgroundRunCommand struct {
 	cmd *cobra.Command
 }
 
-func NewBackgroundRunCommand(root *RootCommand) *BackgroundRunCommand {
+func NewBackgroundRunCommand() *BackgroundRunCommand {
 	b := &BackgroundRunCommand{}
 	b.cmd = &cobra.Command{
 		Use:    "run",

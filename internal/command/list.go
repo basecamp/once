@@ -12,7 +12,7 @@ type ListCommand struct {
 	cmd *cobra.Command
 }
 
-func NewListCommand(root *RootCommand) *ListCommand {
+func NewListCommand() *ListCommand {
 	l := &ListCommand{}
 	l.cmd = &cobra.Command{
 		Use:     "list",

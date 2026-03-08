@@ -6,6 +6,16 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestProxyContainerName(t *testing.T) {
+	ns := &Namespace{name: "once"}
+	proxy := NewProxy(ns)
+	assert.Equal(t, "once-proxy", proxy.containerName())
+
+	ns2 := &Namespace{name: "staging"}
+	proxy2 := NewProxy(ns2)
+	assert.Equal(t, "staging-proxy", proxy2.containerName())
+}
+
 func TestDeployArgs(t *testing.T) {
 	proxy := &Proxy{}
 

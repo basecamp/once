@@ -44,7 +44,7 @@ func (w *EventWatcher) watchLoop(ctx context.Context, out chan<- struct{}) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(time.Second): // Pause before retrying
+		case <-time.After(streamRetryDelay): // Pause before retrying
 		}
 	}
 }

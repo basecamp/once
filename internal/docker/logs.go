@@ -11,7 +11,13 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 )
 
-const DefaultLogBufferSize = 10000
+const (
+	DefaultLogBufferSize = 10000
+	defaultTailLines     = "10000"
+	scannerBufSize       = 64 * 1024
+	scannerMaxSize       = 1024 * 1024
+	streamRetryDelay     = time.Second
+)
 
 type LogLine struct {
 	Content  string
@@ -130,7 +136,7 @@ func (s *LogStreamer) runStream(ctx context.Context, containerName string) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(time.Second):
+		case <-time.After(streamRetryDelay):
 			// Retry after brief delay if stream disconnected
 		}
 	}
@@ -147,7 +153,7 @@ func (s *LogStreamer) streamLogs(ctx context.Context, containerName string) {
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     true,
-		Tail:       "10000",
+		Tail:       defaultTailLines,
 	})
 	if err != nil {
 		return
@@ -193,7 +199,7 @@ func (s *LogStreamer) demuxAndScan(reader io.Reader) {
 
 func (s *LogStreamer) scanLines(reader io.Reader, isStderr bool) {
 	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, scannerBufSize), scannerMaxSize)
 
 	for scanner.Scan() {
 		s.addLine(LogLine{

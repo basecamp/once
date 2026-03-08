@@ -12,7 +12,7 @@ type VersionCommand struct {
 	cmd *cobra.Command
 }
 
-func NewVersionCommand(root *RootCommand) *VersionCommand {
+func NewVersionCommand() *VersionCommand {
 	v := &VersionCommand{}
 	v.cmd = &cobra.Command{
 		Use:   "version",

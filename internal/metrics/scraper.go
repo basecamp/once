@@ -13,6 +13,11 @@ import (
 	"github.com/prometheus/common/model"
 )
 
+const (
+	defaultBufferSize = 200
+	httpTimeout       = 5 * time.Second
+)
+
 // Sample represents request counts for a single scrape interval
 type Sample struct {
 	Timestamp    time.Time
@@ -29,7 +34,7 @@ type ScraperSettings struct {
 
 func (s ScraperSettings) withDefaults() ScraperSettings {
 	if s.BufferSize == 0 {
-		s.BufferSize = 200
+		s.BufferSize = defaultBufferSize
 	}
 	return s
 }
@@ -61,7 +66,7 @@ func NewMetricsScraper(settings ScraperSettings) *MetricsScraper {
 	settings = settings.withDefaults()
 	return &MetricsScraper{
 		settings: settings,
-		client:   &http.Client{Timeout: 5 * time.Second},
+		client:   &http.Client{Timeout: httpTimeout},
 		services: make(map[string]*serviceData),
 	}
 }

@@ -10,7 +10,7 @@ type UpdateCommand struct {
 	cmd *cobra.Command
 }
 
-func NewUpdateCommand(root *RootCommand) *UpdateCommand {
+func NewUpdateCommand() *UpdateCommand {
 	u := &UpdateCommand{}
 	u.cmd = &cobra.Command{
 		Use:   "update",
