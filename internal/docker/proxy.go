@@ -170,7 +170,7 @@ func (p *Proxy) Remove(ctx context.Context, appName string) error {
 }
 
 func (p *Proxy) Deploy(ctx context.Context, opts DeployOptions) error {
-	args := []string{"kamal-proxy", "deploy", opts.AppName, "--target", opts.Target}
+	args := []string{"kamal-proxy", "deploy", opts.AppName, "--target", opts.Target, "--deploy-timeout", "120s"}
 
 	if opts.Host != "" {
 		args = append(args, "--host", opts.Host)
