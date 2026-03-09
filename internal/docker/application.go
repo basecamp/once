@@ -31,6 +31,7 @@ var (
 
 const (
 	AutomaticTaskInterval = 24 * time.Hour
+	HealthCheckPath       = "/up"
 	httpVerifyTimeout     = 30 * time.Second
 )
 
@@ -210,7 +211,7 @@ func (a *Application) VerifyHTTP(ctx context.Context) error {
 	}
 
 	client := &http.Client{Timeout: httpVerifyTimeout}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+HealthCheckPath, nil)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrVerificationFailed, err)
 	}

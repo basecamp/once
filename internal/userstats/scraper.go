@@ -14,6 +14,8 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+
+	"github.com/basecamp/once/internal/docker"
 )
 
 const (
@@ -23,6 +25,7 @@ const (
 	initialFlushDelay  = 10 * time.Second
 	scannerBufSize     = 64 * 1024
 	scannerMaxSize     = 1024 * 1024
+	healthCheckPath    = docker.HealthCheckPath
 )
 
 type dockerClient interface {
@@ -49,6 +52,29 @@ type logEntry struct {
 	Time       time.Time `json:"time"`
 	RemoteAddr string    `json:"remote_addr"`
 	Service    string    `json:"service"`
+	Path       string    `json:"path"`
+}
+
+func (e logEntry) visit() (service, addr string, unixHour int64, ok bool) {
+	if e.Service == "" || e.RemoteAddr == "" {
+		return
+	}
+
+	addr = cleanRemoteAddr(e.RemoteAddr)
+	if isLoopback(addr) {
+		return
+	}
+
+	if e.Path == healthCheckPath {
+		return
+	}
+
+	unixHour = e.Time.Unix() / 3600
+	if unixHour <= 0 {
+		return
+	}
+
+	return e.Service, addr, unixHour, true
 }
 
 func NewScraper(namespace string) *Scraper {
@@ -222,27 +248,18 @@ func (s *Scraper) processLine(line []byte) {
 		return
 	}
 
-	if entry.Service == "" || entry.RemoteAddr == "" {
-		return
-	}
-
-	addr := cleanRemoteAddr(entry.RemoteAddr)
-	if isLoopback(addr) {
-		return
-	}
-
-	unixHour := entry.Time.Unix() / 3600
-	if unixHour <= 0 {
+	service, addr, unixHour, ok := entry.visit()
+	if !ok {
 		return
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	live, ok := s.live[entry.Service]
+	live, ok := s.live[service]
 	if !ok {
 		live = &liveServiceData{}
-		s.live[entry.Service] = live
+		s.live[service] = live
 	}
 
 	idx := unixHour % NumBuckets

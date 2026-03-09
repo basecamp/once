@@ -53,6 +53,15 @@ func TestProcessLineSkipsIncomplete(t *testing.T) {
 	assert.Empty(t, s.live)
 }
 
+func TestProcessLineSkipsHealthCheck(t *testing.T) {
+	s := NewScraper("once")
+	ts := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
+
+	s.processLine(mustMarshal(t, logEntry{Time: ts, RemoteAddr: "1.2.3.4", Service: "campfire", Path: "/up"}))
+
+	assert.Empty(t, s.live)
+}
+
 func TestProcessLineSkipsLoopback(t *testing.T) {
 	s := NewScraper("once")
 	ts := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)

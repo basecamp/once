@@ -11,7 +11,9 @@ import (
 )
 
 func TestVerifyHTTP_Success(t *testing.T) {
+	var requestPath string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestPath = r.URL.Path
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -22,6 +24,7 @@ func TestVerifyHTTP_Success(t *testing.T) {
 
 	err := app.VerifyHTTP(context.Background())
 	assert.NoError(t, err)
+	assert.Equal(t, HealthCheckPath, requestPath)
 }
 
 func TestVerifyHTTP_RedirectToSuccess(t *testing.T) {
