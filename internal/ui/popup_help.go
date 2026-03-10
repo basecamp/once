@@ -9,6 +9,12 @@ import (
 	"github.com/basecamp/once/internal/mouse"
 )
 
+var popupHelpKeys = struct {
+	Close key.Binding
+}{
+	Close: NewKeyBinding("enter", "esc", "f1"),
+}
+
 type PopupHelpCloseMsg struct{}
 
 type PopupHelp struct {
@@ -48,7 +54,7 @@ func NewPopupHelp(title, content string, termWidth, termHeight int) PopupHelp {
 func (m PopupHelp) Update(msg tea.Msg) (PopupHelp, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
-		if key.Matches(msg, NewKeyBinding("enter"), NewKeyBinding("esc"), NewKeyBinding("f1")) {
+		if key.Matches(msg, popupHelpKeys.Close) {
 			return m, func() tea.Msg { return PopupHelpCloseMsg{} }
 		}
 

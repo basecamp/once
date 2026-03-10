@@ -13,6 +13,16 @@ import (
 	"github.com/basecamp/once/internal/mouse"
 )
 
+var formKeys = struct {
+	Tab      key.Binding
+	ShiftTab key.Binding
+	Enter    key.Binding
+}{
+	Tab:      NewKeyBinding("tab"),
+	ShiftTab: NewKeyBinding("shift+tab"),
+	Enter:    NewKeyBinding("enter"),
+}
+
 type FormField interface {
 	Update(tea.Msg) tea.Cmd
 	View() string
@@ -251,11 +261,11 @@ func (f Form) Update(msg tea.Msg) (Form, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
+		case key.Matches(msg, formKeys.Tab):
 			return f.focusNext()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab"))):
+		case key.Matches(msg, formKeys.ShiftTab):
 			return f.focusPrev()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+		case key.Matches(msg, formKeys.Enter):
 			return f.handleEnter()
 		}
 	}

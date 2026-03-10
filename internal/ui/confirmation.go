@@ -8,6 +8,16 @@ import (
 	"github.com/basecamp/once/internal/mouse"
 )
 
+var confirmationKeys = struct {
+	Toggle key.Binding
+	Enter  key.Binding
+	Esc    key.Binding
+}{
+	Toggle: NewKeyBinding("tab", "shift+tab"),
+	Enter:  NewKeyBinding("enter"),
+	Esc:    NewKeyBinding("esc"),
+}
+
 type ConfirmationConfirmMsg struct{}
 type ConfirmationCancelMsg struct{}
 
@@ -29,11 +39,11 @@ func (m Confirmation) Update(msg tea.Msg) (Confirmation, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch {
-		case key.Matches(msg, NewKeyBinding("tab"), NewKeyBinding("shift+tab")):
+		case key.Matches(msg, confirmationKeys.Toggle):
 			m.focused = 1 - m.focused
-		case key.Matches(msg, NewKeyBinding("enter")):
+		case key.Matches(msg, confirmationKeys.Enter):
 			return m, m.activate()
-		case key.Matches(msg, NewKeyBinding("esc")):
+		case key.Matches(msg, confirmationKeys.Esc):
 			return m, func() tea.Msg { return ConfirmationCancelMsg{} }
 		}
 

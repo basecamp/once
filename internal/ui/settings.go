@@ -29,9 +29,11 @@ type SettingsSectionSubmitMsg struct {
 type SettingsSectionCancelMsg struct{}
 
 var settingsKeys = struct {
-	Back key.Binding
+	Back  key.Binding
+	Enter key.Binding
 }{
-	Back: WithHelp(NewKeyBinding("esc"), "esc", "back"),
+	Back:  WithHelp(NewKeyBinding("esc"), "esc", "back"),
+	Enter: NewKeyBinding("enter"),
 }
 
 type settingsState int
@@ -141,7 +143,7 @@ func (m Settings) Update(msg tea.Msg) (Component, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		if m.state == settingsStateActionComplete {
-			if key.Matches(msg, NewKeyBinding("enter")) {
+			if key.Matches(msg, settingsKeys.Enter) {
 				return m, m.navigateToDashboard()
 			}
 			return m, nil

@@ -145,7 +145,7 @@ func (m Logs) scheduleNextLogsTick() tea.Cmd {
 }
 
 func (m Logs) handleFilterKey(msg tea.KeyPressMsg) (Component, tea.Cmd) {
-	if key.Matches(msg, NewKeyBinding("esc")) {
+	if key.Matches(msg, logsKeys.Back) {
 		m.filterActive = false
 		m.filterEnabled = true
 		m.filterText = ""
