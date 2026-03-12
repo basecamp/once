@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	proxyImage = "basecamp/kamal-proxy"
+	proxyImage = "basecamp/kamal-proxy:once-01"
 	labelKey   = "once"
 )
 
