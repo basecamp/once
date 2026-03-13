@@ -108,13 +108,17 @@ func (n *Namespace) Applications() []*Application {
 	return n.applications
 }
 
-func (n *Namespace) HostInUse(host string) bool {
+func (n *Namespace) ApplicationByHost(host string) *Application {
 	for _, app := range n.applications {
 		if app.Settings.Host == host {
-			return true
+			return app
 		}
 	}
-	return false
+	return nil
+}
+
+func (n *Namespace) HostInUse(host string) bool {
+	return n.ApplicationByHost(host) != nil
 }
 
 func (n *Namespace) HostInUseByAnother(host string, excludeApp string) bool {
@@ -145,6 +149,43 @@ func (n *Namespace) Setup(ctx context.Context) error {
 	}
 
 	return n.proxy.Boot(ctx, ProxySettings{})
+}
+
+// DeployApplication deploys an application, reusing an existing app if the host
+// is already in use. It returns the app, whether it was a fresh deploy, and any
+// error. On redeploy failure, the existing app's settings are restored.
+//
+// This method does not update the namespace's application list for fresh
+// deploys. Callers should call Refresh if they need the namespace to reflect the
+// new app.
+func (n *Namespace) DeployApplication(ctx context.Context, settings ApplicationSettings, progress DeployProgressCallback) (*Application, bool, error) {
+	if existing := n.ApplicationByHost(settings.Host); existing != nil {
+		oldSettings := existing.Settings
+		settings.Name = oldSettings.Name
+		existing.Settings = settings
+		if err := existing.Deploy(ctx, progress); err != nil {
+			existing.Settings = oldSettings
+			return nil, false, err
+		}
+		return existing, false, nil
+	}
+
+	baseName := NameFromImageRef(settings.Image)
+	name, err := n.UniqueName(baseName)
+	if err != nil {
+		return nil, false, fmt.Errorf("generating app name: %w", err)
+	}
+	settings.Name = name
+
+	app := NewApplication(n, settings)
+	if err := app.Deploy(ctx, progress); err != nil {
+		if cleanupErr := app.Destroy(context.Background(), true); cleanupErr != nil {
+			slog.Error("Failed to clean up after deploy failure", "app", name, "error", cleanupErr)
+		}
+		return nil, true, err
+	}
+
+	return app, true, nil
 }
 
 func (n *Namespace) EnsureNetwork(ctx context.Context) error {

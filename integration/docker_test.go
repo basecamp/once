@@ -647,6 +647,128 @@ func TestRemoveApplicationWithData(t *testing.T) {
 	assert.ErrorIs(t, err, docker.ErrVolumeNotFound)
 }
 
+func TestDeployWithSettings(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ns, err := docker.NewNamespace("once-settings-test")
+	require.NoError(t, err)
+	defer ns.Teardown(ctx, true)
+
+	require.NoError(t, ns.EnsureNetwork(ctx))
+	require.NoError(t, ns.Proxy().Boot(ctx, getProxyPorts(t)))
+
+	settings := docker.ApplicationSettings{
+		Name:       "settingsapp",
+		Image:      "ghcr.io/basecamp/once-campfire:main",
+		Host:       "settingsapp.localhost",
+		DisableTLS: true,
+		EnvVars:    map[string]string{"CUSTOM_VAR": "custom_value", "ANOTHER": "thing"},
+		SMTP: docker.SMTPSettings{
+			Server:   "smtp.example.com",
+			Port:     "587",
+			Username: "user",
+			Password: "pass",
+			From:     "noreply@example.com",
+		},
+		Resources:  docker.ContainerResources{CPUs: 1, MemoryMB: 512},
+		AutoUpdate: false,
+		Backup:     docker.BackupSettings{Path: "/backups", AutoBackup: true},
+	}
+
+	app := deployApp(t, ctx, ns, settings)
+
+	// Verify settings persisted via label restore
+	ns2, err := docker.RestoreNamespace(ctx, "once-settings-test")
+	require.NoError(t, err)
+
+	restored := ns2.Application("settingsapp")
+	require.NotNil(t, restored)
+	assert.True(t, restored.Settings.DisableTLS)
+	assert.Equal(t, "custom_value", restored.Settings.EnvVars["CUSTOM_VAR"])
+	assert.Equal(t, "thing", restored.Settings.EnvVars["ANOTHER"])
+	assert.Equal(t, "smtp.example.com", restored.Settings.SMTP.Server)
+	assert.Equal(t, "587", restored.Settings.SMTP.Port)
+	assert.False(t, restored.Settings.AutoUpdate)
+	assert.Equal(t, "/backups", restored.Settings.Backup.Path)
+	assert.True(t, restored.Settings.Backup.AutoBackup)
+
+	// Verify container env vars
+	containerName, err := app.ContainerName(ctx)
+	require.NoError(t, err)
+	envVars := inspectContainerEnv(t, ctx, containerName)
+	assert.Contains(t, envVars, "CUSTOM_VAR=custom_value")
+	assert.Contains(t, envVars, "ANOTHER=thing")
+	assert.Contains(t, envVars, "SMTP_ADDRESS=smtp.example.com")
+
+	// Verify container resources
+	assertContainerResources(t, ctx, containerName, 1e9, 512*1024*1024)
+}
+
+func TestRedeployToExistingHost(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ns, err := docker.NewNamespace("once-redeploy-test")
+	require.NoError(t, err)
+	defer ns.Teardown(ctx, true)
+
+	require.NoError(t, ns.EnsureNetwork(ctx))
+	require.NoError(t, ns.Proxy().Boot(ctx, getProxyPorts(t)))
+
+	// Initial deploy with settings
+	initialSettings := docker.ApplicationSettings{
+		Name:    "redeployapp",
+		Image:   "ghcr.io/basecamp/once-campfire:main",
+		Host:    "redeploy.localhost",
+		EnvVars: map[string]string{"OLD_VAR": "old_value"},
+		SMTP: docker.SMTPSettings{
+			Server: "smtp.old.com",
+			Port:   "25",
+		},
+		Resources: docker.ContainerResources{CPUs: 2, MemoryMB: 1024},
+	}
+
+	app := deployApp(t, ctx, ns, initialSettings)
+	vol, err := app.Volume(ctx)
+	require.NoError(t, err)
+	originalSecretKeyBase := vol.SecretKeyBase()
+
+	// Redeploy to the same host with different settings via DeployApplication
+	newSettings := docker.ApplicationSettings{
+		Image:   "ghcr.io/basecamp/once-campfire:main",
+		Host:    "redeploy.localhost",
+		EnvVars: map[string]string{"NEW_VAR": "new_value"},
+	}
+
+	redeployedApp, isNew, err := ns.DeployApplication(ctx, newSettings, nil)
+	require.NoError(t, err)
+	assert.False(t, isNew)
+	require.NoError(t, ns.Refresh(ctx))
+
+	// Should still be one app
+	assert.Len(t, ns.Applications(), 1)
+
+	// Name preserved
+	assert.Equal(t, "redeployapp", redeployedApp.Settings.Name)
+
+	// Volume preserved
+	vol2, err := redeployedApp.Volume(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, originalSecretKeyBase, vol2.SecretKeyBase())
+
+	// New env vars present, old ones gone
+	containerName, err := redeployedApp.ContainerName(ctx)
+	require.NoError(t, err)
+	envVars := inspectContainerEnv(t, ctx, containerName)
+	assert.Contains(t, envVars, "NEW_VAR=new_value")
+	assertEnvAbsent(t, envVars, "OLD_VAR")
+	assertEnvAbsent(t, envVars, "SMTP_ADDRESS")
+
+	// Resources cleared (zero values)
+	assertContainerResources(t, ctx, containerName, 0, 0)
+}
+
 // Helpers
 
 func TestContainerResources(t *testing.T) {
@@ -988,6 +1110,27 @@ func buildTestBackup(t *testing.T, imageName string) []byte {
 	require.NoError(t, gw.Close())
 
 	return buf.Bytes()
+}
+
+func inspectContainerEnv(t *testing.T, ctx context.Context, name string) []string {
+	t.Helper()
+	c, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	require.NoError(t, err)
+	defer c.Close()
+
+	info, err := c.ContainerInspect(ctx, name)
+	require.NoError(t, err)
+	return info.Config.Env
+}
+
+func assertEnvAbsent(t *testing.T, envVars []string, key string) {
+	t.Helper()
+	prefix := key + "="
+	for _, e := range envVars {
+		if strings.HasPrefix(e, prefix) {
+			t.Errorf("expected env var %s to be absent, but found %s", key, e)
+		}
+	}
 }
 
 func extractTarGz(t *testing.T, r io.Reader) map[string][]byte {

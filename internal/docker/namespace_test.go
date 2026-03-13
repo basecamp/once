@@ -32,6 +32,24 @@ func TestApplicationLookup(t *testing.T) {
 	assert.Nil(t, ns.Application("missing"))
 }
 
+func TestApplicationByHost(t *testing.T) {
+	ns := &Namespace{name: "test"}
+	ns.applications = append(ns.applications,
+		NewApplication(ns, ApplicationSettings{Name: "app1", Host: "app1.localhost"}),
+		NewApplication(ns, ApplicationSettings{Name: "app2", Host: "app2.localhost"}),
+	)
+
+	app := ns.ApplicationByHost("app1.localhost")
+	require.NotNil(t, app)
+	assert.Equal(t, "app1", app.Settings.Name)
+
+	app = ns.ApplicationByHost("app2.localhost")
+	require.NotNil(t, app)
+	assert.Equal(t, "app2", app.Settings.Name)
+
+	assert.Nil(t, ns.ApplicationByHost("missing.localhost"))
+}
+
 func TestHostInUse(t *testing.T) {
 	ns := &Namespace{name: "test"}
 	ns.applications = append(ns.applications,
