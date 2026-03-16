@@ -25,7 +25,7 @@ If the machine you're running this from doesn't already have Docker, it will ins
 
 ### Installing manually
 
-If you're prefer to set ONCE up yourself, you can download the appropriate binary from the GitHub Releases page.
+If you prefer to set ONCE up yourself, you can download the appropriate binary from the GitHub Releases page.
 Then follow these steps to get it installed:
 
 - Install Docker (if it's not already installed) using your preferred package manager
