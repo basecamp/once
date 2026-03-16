@@ -148,6 +148,44 @@ func TestGaplessDeployment(t *testing.T) {
 	assert.Len(t, ns.Applications(), 1, "should have exactly one application after redeploy and refresh")
 }
 
+func TestUpdateDetectsLocalImageChange(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	registryURL := startLocalRegistry(t, ctx)
+	imageTag := registryURL + "/update-test:latest"
+
+	buildAndPushImage(t, ctx, imageTag, "v1")
+
+	ns, err := docker.NewNamespace("once-update-test")
+	require.NoError(t, err)
+	defer ns.Teardown(ctx, true)
+
+	require.NoError(t, ns.EnsureNetwork(ctx))
+	require.NoError(t, ns.Proxy().Boot(ctx, getProxyPorts(t)))
+
+	app := deployApp(t, ctx, ns, docker.ApplicationSettings{
+		Name:  "updateapp",
+		Image: imageTag,
+		Host:  "updateapp.localhost",
+	})
+
+	firstContainer, err := app.ContainerName(ctx)
+	require.NoError(t, err)
+
+	// Build v2 with the same tag. The local tag now points to a newer image
+	// than what the running container uses.
+	buildAndPushImage(t, ctx, imageTag, "v2")
+
+	changed, err := app.Update(ctx, nil)
+	require.NoError(t, err)
+	assert.True(t, changed, "Update should detect the newer local image")
+
+	secondContainer, err := app.ContainerName(ctx)
+	require.NoError(t, err)
+	assert.NotEqual(t, firstContainer, secondContainer, "container should change after update")
+}
+
 func TestLargeLabelData(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -993,3 +1031,34 @@ func extractTarGz(t *testing.T, r io.Reader) map[string][]byte {
 
 	return entries
 }
+
+func buildAndPushImage(t *testing.T, ctx context.Context, tag, version string) {
+	t.Helper()
+	c, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	require.NoError(t, err)
+	defer c.Close()
+
+	dockerfile := fmt.Sprintf("FROM ghcr.io/basecamp/once-campfire:main\nLABEL version=%s\n", version)
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "Dockerfile", Size: int64(len(dockerfile)), Mode: 0644}))
+	_, err = tw.Write([]byte(dockerfile))
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+
+	buildResp, err := c.ImageBuild(ctx, &buf, build.ImageBuildOptions{
+		Tags:       []string{tag},
+		Dockerfile: "Dockerfile",
+		Remove:     true,
+	})
+	require.NoError(t, err)
+	io.Copy(io.Discard, buildResp.Body)
+	buildResp.Body.Close()
+
+	pushResp, err := c.ImagePush(ctx, tag, image.PushOptions{RegistryAuth: "e30="})
+	require.NoError(t, err)
+	io.Copy(io.Discard, pushResp)
+	pushResp.Close()
+}
+

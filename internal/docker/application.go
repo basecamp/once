@@ -274,8 +274,6 @@ func (a *Application) saveOperationResult(ctx context.Context, record func(*Stat
 }
 
 func (a *Application) pullImage(ctx context.Context, progress DeployProgressCallback) (bool, error) {
-	beforeID := a.currentImageID(ctx)
-
 	reader, err := a.namespace.client.ImagePull(ctx, a.Settings.Image, image.PullOptions{})
 	if err != nil {
 		return false, fmt.Errorf("%w: %w", ErrPullFailed, err)
@@ -288,23 +286,29 @@ func (a *Application) pullImage(ctx context.Context, progress DeployProgressCall
 			return false, fmt.Errorf("%w: %w", ErrPullFailed, err)
 		}
 	} else {
-		_, _ = io.Copy(io.Discard, reader)
+		if _, err := io.Copy(io.Discard, reader); err != nil {
+			return false, fmt.Errorf("%w: %w", ErrPullFailed, err)
+		}
 	}
 
-	afterInspect, err := a.namespace.client.ImageInspect(ctx, a.Settings.Image)
+	pulledInspect, err := a.namespace.client.ImageInspect(ctx, a.Settings.Image)
 	if err != nil {
 		return false, fmt.Errorf("%w: inspecting image after pull: %w", ErrPullFailed, err)
 	}
 
-	return afterInspect.ID != beforeID, nil
+	return pulledInspect.ID != a.runningImageID(ctx), nil
 }
 
-func (a *Application) currentImageID(ctx context.Context) string {
-	inspect, err := a.namespace.client.ImageInspect(ctx, a.Settings.Image)
+func (a *Application) runningImageID(ctx context.Context) string {
+	name, err := a.ContainerName(ctx)
 	if err != nil {
 		return ""
 	}
-	return inspect.ID
+	info, err := a.namespace.client.ContainerInspect(ctx, name)
+	if err != nil {
+		return ""
+	}
+	return info.Image
 }
 
 func (a *Application) deployWithVolume(ctx context.Context, vol *ApplicationVolume, progress DeployProgressCallback) error {
