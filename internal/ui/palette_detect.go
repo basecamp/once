@@ -108,9 +108,6 @@ func detectFrom(rw io.ReadWriter, timeout time.Duration) DetectedColors {
 		select {
 		case r := <-ch:
 			collect(r)
-			if received >= sampleCount {
-				return detected
-			}
 		case <-done:
 			// Drain any remaining buffered results
 			for {
