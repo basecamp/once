@@ -80,6 +80,12 @@ func TestLoadDockerConfig(t *testing.T) {
 	})
 }
 
+func TestCredHelperServerURL(t *testing.T) {
+	assert.Equal(t, "https://index.docker.io/v1/", credHelperServerURL("docker.io"))
+	assert.Equal(t, "ghcr.io", credHelperServerURL("ghcr.io"))
+	assert.Equal(t, "gcr.io", credHelperServerURL("gcr.io"))
+}
+
 func TestAuthEntryFor(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString([]byte("user:pass"))
 	auths := map[string]dockerAuthEntry{

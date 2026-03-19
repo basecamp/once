@@ -47,11 +47,11 @@ func registryAuthFor(imageName string) string {
 	}
 
 	if helper, ok := cfg.CredHelpers[host]; ok {
-		return authFromCredHelper(helper, host)
+		return authFromCredHelper(helper, credHelperServerURL(host))
 	}
 
 	if cfg.CredsStore != "" {
-		return authFromCredHelper(cfg.CredsStore, host)
+		return authFromCredHelper(cfg.CredsStore, credHelperServerURL(host))
 	}
 
 	if entry, ok := authEntryFor(cfg.Auths, host); ok && entry.Auth != "" {
@@ -108,6 +108,16 @@ func authEntryFor(auths map[string]dockerAuthEntry, host string) (dockerAuthEntr
 		}
 	}
 	return dockerAuthEntry{}, false
+}
+
+// credHelperServerURL returns the server URL to pass to a credential helper
+// for the given host. Docker Hub requires the full legacy URL that docker login
+// uses; all other registries use the bare host.
+func credHelperServerURL(host string) string {
+	if host == "docker.io" {
+		return "https://index.docker.io/v1/"
+	}
+	return host
 }
 
 func canonicalHost(host string) string {
