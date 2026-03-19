@@ -40,12 +40,7 @@ func registryAuthFor(imageName string) string {
 		return ""
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-
-	cfg, err := loadDockerConfig(filepath.Join(home, ".docker", "config.json"))
+	cfg, err := loadDockerConfig(dockerConfigPath())
 	if err != nil {
 		return ""
 	}
@@ -66,6 +61,17 @@ func registryAuthFor(imageName string) string {
 }
 
 // Helpers
+
+func dockerConfigPath() string {
+	if dir := os.Getenv("DOCKER_CONFIG"); dir != "" {
+		return filepath.Join(dir, "config.json")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".docker", "config.json")
+}
 
 func registryHostFor(imageName string) string {
 	named, err := reference.ParseNormalizedNamed(imageName)
