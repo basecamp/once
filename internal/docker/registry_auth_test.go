@@ -148,6 +148,33 @@ func TestRegistryAuthFor(t *testing.T) {
 		assert.Equal(t, "", registryAuthFor("ghcr.io/basecamp/once:main"))
 	})
 
+	t.Run("reads config from DOCKER_CONFIG when set", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("DOCKER_CONFIG", dir)
+		encoded := base64.StdEncoding.EncodeToString([]byte("docker-config-user:docker-config-pass"))
+		cfg := &dockerConfigFile{
+			Auths: map[string]dockerAuthEntry{"ghcr.io": {Auth: encoded}},
+		}
+		data, err := json.Marshal(cfg)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.json"), data, 0600))
+
+		token := registryAuthFor("ghcr.io/basecamp/once:main")
+		require.NotEmpty(t, token)
+		ac := decodeAuthToken(t, token)
+		assert.Equal(t, "docker-config-user", ac.Username)
+		assert.Equal(t, "docker-config-pass", ac.Password)
+	})
+
+	t.Run("malformed config.json falls back to anonymous", func(t *testing.T) {
+		home := fakeHome(t)
+		dockerDir := filepath.Join(home, ".docker")
+		require.NoError(t, os.MkdirAll(dockerDir, 0700))
+		require.NoError(t, os.WriteFile(filepath.Join(dockerDir, "config.json"), []byte("{not json}"), 0600))
+
+		assert.Equal(t, "", registryAuthFor("ghcr.io/basecamp/once:main"))
+	})
+
 	t.Run("config has credHelpers for host", func(t *testing.T) {
 		home := fakeHome(t)
 		installFakeCredHelper(t, "myhelper", credHelperScript(credHelperResponse{Username: "helper-user", Secret: "helper-pass"}))
