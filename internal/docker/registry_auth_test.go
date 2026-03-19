@@ -80,6 +80,30 @@ func TestLoadDockerConfig(t *testing.T) {
 	})
 }
 
+func TestAuthEntryFor(t *testing.T) {
+	encoded := base64.StdEncoding.EncodeToString([]byte("user:pass"))
+	auths := map[string]dockerAuthEntry{
+		"ghcr.io":                        {Auth: encoded},
+		"https://index.docker.io/v1/":    {Auth: encoded},
+		"https://registry.example.com/":  {Auth: encoded},
+	}
+
+	entry, ok := authEntryFor(auths, "ghcr.io")
+	assert.True(t, ok)
+	assert.Equal(t, encoded, entry.Auth)
+
+	entry, ok = authEntryFor(auths, "docker.io")
+	assert.True(t, ok, "should resolve https://index.docker.io/v1/ to docker.io")
+	assert.Equal(t, encoded, entry.Auth)
+
+	entry, ok = authEntryFor(auths, "registry.example.com")
+	assert.True(t, ok, "should strip scheme and trailing slash from URL keys")
+	assert.Equal(t, encoded, entry.Auth)
+
+	_, ok = authEntryFor(auths, "notfound.io")
+	assert.False(t, ok)
+}
+
 func TestAuthFromCredHelper(t *testing.T) {
 	t.Run("valid helper returns JSON", func(t *testing.T) {
 		installFakeCredHelper(t, "test-valid", credHelperScript(credHelperResponse{Username: "bob", Secret: "topsecret"}))

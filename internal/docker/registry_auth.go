@@ -3,6 +3,7 @@ package docker
 import (
 	"encoding/base64"
 	"encoding/json"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,7 +54,7 @@ func registryAuthFor(imageName string) string {
 		return authFromCredHelper(cfg.CredsStore, host)
 	}
 
-	if entry, ok := cfg.Auths[host]; ok && entry.Auth != "" {
+	if entry, ok := authEntryFor(cfg.Auths, host); ok && entry.Auth != "" {
 		return authFromInlineEntry(entry.Auth)
 	}
 
@@ -91,6 +92,31 @@ func loadDockerConfig(configPath string) (*dockerConfigFile, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// authEntryFor looks up the auth entry for host in auths, handling keys stored
+// as full URLs (e.g. https://index.docker.io/v1/) in addition to bare hostnames.
+func authEntryFor(auths map[string]dockerAuthEntry, host string) (dockerAuthEntry, bool) {
+	if entry, ok := auths[host]; ok {
+		return entry, true
+	}
+	for key, entry := range auths {
+		if u, err := url.Parse(key); err == nil && u.Host != "" {
+			if canonicalHost(u.Host) == host {
+				return entry, true
+			}
+		}
+	}
+	return dockerAuthEntry{}, false
+}
+
+func canonicalHost(host string) string {
+	switch strings.ToLower(host) {
+	case "index.docker.io", "registry-1.docker.io":
+		return "docker.io"
+	default:
+		return strings.ToLower(host)
+	}
 }
 
 func authFromCredHelper(helper, serverURL string) string {
