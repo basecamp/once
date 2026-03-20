@@ -1,4 +1,4 @@
-.PHONY: build test integration lint coverage dist test-release
+.PHONY: build test integration lint lint-actions coverage dist test-release
 
 PLATFORMS = linux darwin
 ARCHITECTURES = amd64 arm64
@@ -26,6 +26,10 @@ integration:
 
 lint:
 	golangci-lint run
+
+lint-actions:
+	actionlint
+	zizmor .
 
 coverage:
 	go test -coverprofile=coverage.out ./internal/...
