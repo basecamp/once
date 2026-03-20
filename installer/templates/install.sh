@@ -5,6 +5,7 @@ REPO='basecamp/once'
 INSTALL_DIR='/usr/local/bin'
 IMAGE_REF='{{ .ImageRef }}'
 RELEASE_JSON=''
+ONCE_BIN=''
 
 main() {
   os=$(detect_os)
@@ -80,7 +81,8 @@ install_once() {
   arch="$1"
 
   if command -v once >/dev/null 2>&1; then
-    echo "once is already installed at $(command -v once)"
+    ONCE_BIN=$(command -v once)
+    echo "once is already installed at ${ONCE_BIN}"
     return
   fi
 
@@ -105,13 +107,14 @@ install_once() {
   fi
   rm -f "$tmpfile"
 
-  echo "Installed once to ${INSTALL_DIR}/once"
+  ONCE_BIN="${INSTALL_DIR}/once"
+  echo "Installed once to ${ONCE_BIN}"
 
   echo "Installing background service..."
   if is_root; then
-    once background install
+    "${ONCE_BIN}" background install
   else
-    sudo once background install
+    sudo "${ONCE_BIN}" background install
   fi
 }
 
@@ -123,13 +126,13 @@ run_once() {
 
   case "$DOCKER_MODE" in
   normal)
-    exec once ${install_flag} </dev/tty
+    exec "${ONCE_BIN}" ${install_flag} </dev/tty
     ;;
   sudo)
-    exec sudo once ${install_flag} </dev/tty
+    exec sudo "${ONCE_BIN}" ${install_flag} </dev/tty
     ;;
   sg)
-    sg docker -c "once ${install_flag}" </dev/tty
+    sg docker -c "${ONCE_BIN} ${install_flag}" </dev/tty
     ;;
   esac
 }
