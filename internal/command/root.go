@@ -90,3 +90,14 @@ func namespaceFlag(cmd *cobra.Command) string {
 	namespace, _ := cmd.Root().PersistentFlags().GetString("namespace")
 	return namespace
 }
+
+func printDeployProgress(p docker.DeployProgress) {
+	switch p.Stage {
+	case docker.DeployStageDownloading:
+		fmt.Printf("Downloading: %d%%\n", p.Percentage)
+	case docker.DeployStageStarting:
+		fmt.Println("Starting...")
+	case docker.DeployStageFinished:
+		fmt.Println("Finished")
+	}
+}
