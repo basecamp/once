@@ -58,18 +58,7 @@ func (d *deployCommand) run(ctx context.Context, ns *docker.Namespace, cmd *cobr
 		AutoUpdate: true,
 	})
 
-	progress := func(p docker.DeployProgress) {
-		switch p.Stage {
-		case docker.DeployStageDownloading:
-			fmt.Printf("Downloading: %d%%\n", p.Percentage)
-		case docker.DeployStageStarting:
-			fmt.Println("Starting...")
-		case docker.DeployStageFinished:
-			fmt.Println("Finished")
-		}
-	}
-
-	if err := app.Deploy(ctx, progress); err != nil {
+	if err := app.Deploy(ctx, printDeployProgress); err != nil {
 		if cleanupErr := app.Destroy(context.Background(), true); cleanupErr != nil {
 			slog.Error("Failed to clean up after deploy failure", "app", name, "error", cleanupErr)
 		}
