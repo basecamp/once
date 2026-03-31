@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/basecamp/once/internal/docker"
@@ -77,6 +78,10 @@ func (r *Runner) check(ctx context.Context) (bool, error) {
 }
 
 func (r *Runner) checkSelfUpdate(ctx context.Context, ns *docker.Namespace, state *docker.State) bool {
+	if os.Getenv("ONCE_NO_SELF_UPDATE") != "" {
+		return false
+	}
+
 	if !state.SelfUpdateDue() {
 		return false
 	}
