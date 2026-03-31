@@ -16,7 +16,7 @@ type startCommand struct {
 func newStartCommand() *startCommand {
 	s := &startCommand{}
 	s.cmd = &cobra.Command{
-		Use:   "start <app>",
+		Use:   "start <host>",
 		Short: "Start an application",
 		Args:  cobra.ExactArgs(1),
 		RunE:  WithNamespace(s.run),
@@ -27,15 +27,15 @@ func newStartCommand() *startCommand {
 // Private
 
 func (s *startCommand) run(ctx context.Context, ns *docker.Namespace, cmd *cobra.Command, args []string) error {
-	appName := args[0]
+	host := args[0]
 
-	err := withApplication(ns, appName, "starting", func(app *docker.Application) error {
+	err := withApplication(ns, host, "starting", func(app *docker.Application) error {
 		return app.Start(ctx)
 	})
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("Started %s\n", appName)
+	fmt.Printf("Started %s\n", host)
 	return nil
 }

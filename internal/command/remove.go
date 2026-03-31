@@ -17,7 +17,7 @@ type removeCommand struct {
 func newRemoveCommand() *removeCommand {
 	r := &removeCommand{}
 	r.cmd = &cobra.Command{
-		Use:     "remove <app>",
+		Use:     "remove <host>",
 		Aliases: []string{"rm"},
 		Short:   "Remove an application",
 		Args:    cobra.ExactArgs(1),
@@ -30,15 +30,15 @@ func newRemoveCommand() *removeCommand {
 // Private
 
 func (r *removeCommand) run(ctx context.Context, ns *docker.Namespace, cmd *cobra.Command, args []string) error {
-	appName := args[0]
+	host := args[0]
 
-	err := withApplication(ns, appName, "removing", func(app *docker.Application) error {
+	err := withApplication(ns, host, "removing", func(app *docker.Application) error {
 		return app.Remove(ctx, r.removeData)
 	})
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("Removed %s\n", appName)
+	fmt.Printf("Removed %s\n", host)
 	return nil
 }

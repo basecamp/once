@@ -61,10 +61,10 @@ func (r *RootCommand) Execute() error {
 
 type NamespaceRunE func(ctx context.Context, ns *docker.Namespace, cmd *cobra.Command, args []string) error
 
-func withApplication(ns *docker.Namespace, name string, action string, fn func(*docker.Application) error) error {
-	app := ns.Application(name)
+func withApplication(ns *docker.Namespace, host string, action string, fn func(*docker.Application) error) error {
+	app := ns.ApplicationByHost(host)
 	if app == nil {
-		return fmt.Errorf("application %q not found", name)
+		return fmt.Errorf("no application found at host %q", host)
 	}
 
 	if err := fn(app); err != nil {
