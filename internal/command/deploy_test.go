@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/basecamp/once/internal/docker"
 )
 
 func TestParseEnvVars(t *testing.T) {
@@ -53,5 +55,19 @@ func TestParseEnvVars(t *testing.T) {
 		result, err := f.parseEnvVars()
 		require.NoError(t, err)
 		assert.Equal(t, "second", result["KEY"])
+	})
+}
+
+func TestBuildSettingsAutoBackupRequiresPath(t *testing.T) {
+	t.Run("auto-backup without path", func(t *testing.T) {
+		f := &settingsFlags{autoBackup: true}
+		_, err := f.buildSettings("image:latest", "app.example.com")
+		assert.ErrorIs(t, err, docker.ErrAutoBackupWithoutPath)
+	})
+
+	t.Run("auto-backup with path", func(t *testing.T) {
+		f := &settingsFlags{autoBackup: true, backupPath: "/backups"}
+		_, err := f.buildSettings("image:latest", "app.example.com")
+		require.NoError(t, err)
 	})
 }

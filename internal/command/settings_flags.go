@@ -52,7 +52,7 @@ func (f *settingsFlags) buildSettings(image, host string) (docker.ApplicationSet
 		return docker.ApplicationSettings{}, docker.ErrBackupPathRelative
 	}
 
-	return docker.ApplicationSettings{
+	s := docker.ApplicationSettings{
 		Image:      image,
 		Host:       host,
 		DisableTLS: f.disableTLS,
@@ -73,7 +73,13 @@ func (f *settingsFlags) buildSettings(image, host string) (docker.ApplicationSet
 			Path:       f.backupPath,
 			AutoBackup: f.autoBackup,
 		},
-	}, nil
+	}
+
+	if err := s.Validate(); err != nil {
+		return docker.ApplicationSettings{}, err
+	}
+
+	return s, nil
 }
 
 func (f *settingsFlags) applyChanges(cmd *cobra.Command, existing docker.ApplicationSettings) (docker.ApplicationSettings, error) {
@@ -124,6 +130,10 @@ func (f *settingsFlags) applyChanges(cmd *cobra.Command, existing docker.Applica
 	}
 	if cmd.Flags().Changed("auto-backup") {
 		s.Backup.AutoBackup = f.autoBackup
+	}
+
+	if err := s.Validate(); err != nil {
+		return s, err
 	}
 
 	return s, nil
