@@ -220,6 +220,18 @@ func TestInstall_ShowsTitleAndHidesLogoWhenAppsExist(t *testing.T) {
 	assert.Contains(t, view, "ONCE · install")
 }
 
+func TestInstall_ShowLogo(t *testing.T) {
+	noApps := newTestNamespace()
+	withApps := newTestNamespace(docker.ApplicationSettings{Name: "myapp"})
+
+	assert.True(t, NewInstall(noApps, "").showLogo())
+	assert.False(t, NewInstall(withApps, "").showLogo())
+
+	t.Setenv("ONCE_REDUCED_MOTION", "true")
+	assert.False(t, NewInstall(noApps, "").showLogo())
+	assert.False(t, NewInstall(withApps, "").showLogo())
+}
+
 func TestInstall_PullFailureReturnsToImageForm(t *testing.T) {
 	ns := newTestNamespace()
 	m := NewInstall(ns, "")
