@@ -14,9 +14,9 @@ require (
 	github.com/distribution/reference v0.6.0
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/docker/go-connections v0.6.0
-	github.com/google/go-containerregistry v0.21.3
+	github.com/google/go-containerregistry v0.21.4
 	github.com/lucasb-eyer/go-colorful v1.4.0
-	github.com/mattn/go-runewidth v0.0.21
+	github.com/mattn/go-runewidth v0.0.22
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.67.5
 	github.com/shirou/gopsutil/v4 v4.26.3
