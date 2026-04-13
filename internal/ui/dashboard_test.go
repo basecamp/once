@@ -192,6 +192,23 @@ func TestDashboard_ToggleDetailsEmptyState(t *testing.T) {
 	assert.True(t, dashboardShowDetails) // unchanged — guarded by len(m.apps) > 0
 }
 
+func TestDashboard_SelectPanelAfterAppsRemoved(t *testing.T) {
+	d := testDashboard(3)
+	d.width = 80
+	d.height = 40
+	d.updateViewportSize()
+	d.rebuildViewportContent()
+
+	// Simulate all apps disappearing (e.g. `once teardown` in another shell).
+	d.apps = nil
+	d.buildPanels()
+
+	// Regression: #49 — scrollToSelection used to index into an empty m.panels.
+	assert.NotPanics(t, func() {
+		d.selectPanel(0)
+	})
+}
+
 func TestDashboard_EmptyStateShowsMessage(t *testing.T) {
 	d := testDashboard(0)
 	d, _ = updateDashboard(d, tea.WindowSizeMsg{Width: 80, Height: 24})
