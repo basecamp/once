@@ -51,10 +51,12 @@ func TestDashboardPanelSelectedHasIndicator(t *testing.T) {
 	panel := testPanel(true)
 	view := panel.View(true, false, true, 80, DashboardScales{})
 
-	// Selected panels have the indicator character
+	// Selected panels have the side indicator
 	assert.Contains(t, view, "▐")
-	assert.Contains(t, view, "▗")
-	assert.Contains(t, view, "▝")
+
+	// Transition corners only appear with true-color BackgroundTint
+	assert.NotContains(t, view, "▗")
+	assert.NotContains(t, view, "▝")
 }
 
 func TestDashboardPanelNotSelectedNoIndicator(t *testing.T) {

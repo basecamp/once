@@ -268,18 +268,21 @@ func Run(ns *docker.Namespace, installImageRef string) error {
 	slog.Info("Starting ONCE UI", "version", version.Version)
 	defer func() { slog.Info("Stopping ONCE UI") }()
 
-	detected := DetectTerminalColors(100 * time.Millisecond)
-	ApplyPalette(NewPalette(detected))
+	return WithRawTerminal(func() error {
+		palette := defaultPalette()
+		palette.Detect(100 * time.Millisecond)
+		ApplyPalette(palette)
 
-	app := NewApp(ns, installImageRef)
+		app := NewApp(ns, installImageRef)
 
-	var opts []tea.ProgramOption
-	if detected.SupportsTrueColor() {
-		opts = append(opts, tea.WithColorProfile(colorprofile.TrueColor))
-	}
+		var opts []tea.ProgramOption
+		if palette.SupportsTrueColor() {
+			opts = append(opts, tea.WithColorProfile(colorprofile.TrueColor))
+		}
 
-	_, err := tea.NewProgram(app, opts...).Run()
-	return err
+		_, err := tea.NewProgram(app, opts...).Run()
+		return err
+	})
 }
 
 // Private
