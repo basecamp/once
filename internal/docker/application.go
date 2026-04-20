@@ -30,7 +30,11 @@ var (
 		msg:         "pull failed",
 		description: "Failed to download the application image. Check that the image name is correct and try again.",
 	}
-	ErrDeployFailed       = errors.New("deploy failed")
+	ErrMountSourceRelative  = errors.New("mount source path must be absolute")
+	ErrMountTargetRelative  = errors.New("mount target path must be absolute")
+	ErrMountDuplicateTarget = errors.New("duplicate mount target path")
+	ErrMountTargetReserved  = errors.New("mount target conflicts with built-in volume mount")
+	ErrDeployFailed         = errors.New("deploy failed")
 	ErrVerificationFailed = &describedError{
 		msg:         "verification failed",
 		description: "The application couldn't be verified. Please check that you have a valid DNS record set up.",
@@ -424,6 +428,13 @@ func (a *Application) volumeMounts(vol *ApplicationVolume) []mount.Mount {
 			Type:   mount.TypeVolume,
 			Source: vol.Name(),
 			Target: target,
+		})
+	}
+	for _, m := range a.Settings.Mounts {
+		mounts = append(mounts, mount.Mount{
+			Type:   mount.TypeBind,
+			Source: m.Source,
+			Target: m.Target,
 		})
 	}
 	return mounts

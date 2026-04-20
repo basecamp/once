@@ -55,6 +55,7 @@ const (
 	SettingsSectionResources
 	SettingsSectionUpdates
 	SettingsSectionBackups
+	SettingsSectionMounts
 )
 
 type App struct {

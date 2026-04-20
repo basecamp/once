@@ -14,6 +14,7 @@ type settingsFlags struct {
 	host         string
 	disableTLS   bool
 	env          []string
+	mounts       []string
 	smtpServer   string
 	smtpPort     string
 	smtpUsername string
@@ -30,6 +31,7 @@ func (f *settingsFlags) register(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.host, "host", "", "hostname for the application")
 	cmd.Flags().BoolVar(&f.disableTLS, "disable-tls", false, "disable TLS for this application")
 	cmd.Flags().StringArrayVar(&f.env, "env", nil, "environment variable in KEY=VALUE format (can be repeated)")
+	cmd.Flags().StringArrayVar(&f.mounts, "mount", nil, "bind mount in SOURCE:TARGET format (can be repeated)")
 	cmd.Flags().StringVar(&f.smtpServer, "smtp-server", "", "SMTP server address")
 	cmd.Flags().StringVar(&f.smtpPort, "smtp-port", "", "SMTP server port")
 	cmd.Flags().StringVar(&f.smtpUsername, "smtp-username", "", "SMTP username")
@@ -48,6 +50,11 @@ func (f *settingsFlags) buildSettings(image, host string) (docker.ApplicationSet
 		return docker.ApplicationSettings{}, err
 	}
 
+	mounts, err := f.parseMounts()
+	if err != nil {
+		return docker.ApplicationSettings{}, err
+	}
+
 	if f.backupPath != "" && !filepath.IsAbs(f.backupPath) {
 		return docker.ApplicationSettings{}, docker.ErrBackupPathRelative
 	}
@@ -57,6 +64,7 @@ func (f *settingsFlags) buildSettings(image, host string) (docker.ApplicationSet
 		Host:       host,
 		DisableTLS: f.disableTLS,
 		EnvVars:    envVars,
+		Mounts:     mounts,
 		SMTP: docker.SMTPSettings{
 			Server:   f.smtpServer,
 			Port:     f.smtpPort,
@@ -133,12 +141,36 @@ func (f *settingsFlags) applyChanges(cmd *cobra.Command, existing docker.Applica
 	if cmd.Flags().Changed("auto-backup") {
 		s.Backup.AutoBackup = f.autoBackup
 	}
+	if cmd.Flags().Changed("mount") {
+		mounts, err := f.parseMounts()
+		if err != nil {
+			return s, err
+		}
+		s.Mounts = mounts
+	}
 
 	if err := s.Validate(); err != nil {
 		return s, err
 	}
 
 	return s, nil
+}
+
+func (f *settingsFlags) parseMounts() ([]docker.MountSetting, error) {
+	if f.mounts == nil {
+		return nil, nil
+	}
+
+	var mounts []docker.MountSetting
+	for _, m := range f.mounts {
+		source, target, ok := strings.Cut(m, ":")
+		if !ok {
+			return nil, fmt.Errorf("invalid mount %q: must be in SOURCE:TARGET format", m)
+		}
+		mounts = append(mounts, docker.MountSetting{Source: source, Target: target})
+	}
+
+	return mounts, nil
 }
 
 func (f *settingsFlags) parseEnvVars() (map[string]string, error) {
