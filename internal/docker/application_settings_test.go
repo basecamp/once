@@ -155,6 +155,100 @@ func TestEnvVarsEqualDiffers(t *testing.T) {
 	assert.False(t, base.Equal(none))
 }
 
+func TestMountsMarshalRoundTrip(t *testing.T) {
+	original := ApplicationSettings{
+		Name:  "app",
+		Image: "img:latest",
+		Mounts: []MountSetting{
+			{Source: "/host/data", Target: "/container/data"},
+			{Source: "/host/config", Target: "/container/config"},
+		},
+	}
+	restored, err := UnmarshalApplicationSettings(original.Marshal())
+	require.NoError(t, err)
+	require.Len(t, restored.Mounts, 2)
+	assert.Equal(t, "/host/data", restored.Mounts[0].Source)
+	assert.Equal(t, "/container/data", restored.Mounts[0].Target)
+	assert.Equal(t, "/host/config", restored.Mounts[1].Source)
+	assert.Equal(t, "/container/config", restored.Mounts[1].Target)
+	assert.True(t, original.Equal(restored))
+}
+
+func TestMountsOmittedWhenEmpty(t *testing.T) {
+	original := ApplicationSettings{Name: "app", Image: "img:latest"}
+	marshalled := original.Marshal()
+	assert.NotContains(t, marshalled, "mounts")
+}
+
+func TestMountsEqualDiffers(t *testing.T) {
+	base := ApplicationSettings{
+		Name:   "app",
+		Mounts: []MountSetting{{Source: "/a", Target: "/b"}},
+	}
+
+	different := ApplicationSettings{
+		Name:   "app",
+		Mounts: []MountSetting{{Source: "/a", Target: "/c"}},
+	}
+	assert.False(t, base.Equal(different))
+
+	extra := ApplicationSettings{
+		Name: "app",
+		Mounts: []MountSetting{
+			{Source: "/a", Target: "/b"},
+			{Source: "/x", Target: "/y"},
+		},
+	}
+	assert.False(t, base.Equal(extra))
+
+	none := ApplicationSettings{Name: "app"}
+	assert.False(t, base.Equal(none))
+}
+
+func TestMountsValidation(t *testing.T) {
+	relativeSource := ApplicationSettings{
+		Image:  "img:latest",
+		Mounts: []MountSetting{{Source: "relative/path", Target: "/container"}},
+	}
+	assert.ErrorIs(t, relativeSource.Validate(), ErrMountSourceRelative)
+
+	relativeTarget := ApplicationSettings{
+		Image:  "img:latest",
+		Mounts: []MountSetting{{Source: "/host", Target: "relative/path"}},
+	}
+	assert.ErrorIs(t, relativeTarget.Validate(), ErrMountTargetRelative)
+
+	duplicateTarget := ApplicationSettings{
+		Image: "img:latest",
+		Mounts: []MountSetting{
+			{Source: "/a", Target: "/same"},
+			{Source: "/b", Target: "/same"},
+		},
+	}
+	assert.ErrorIs(t, duplicateTarget.Validate(), ErrMountDuplicateTarget)
+
+	reservedTarget := ApplicationSettings{
+		Image:  "img:latest",
+		Mounts: []MountSetting{{Source: "/host/data", Target: "/storage"}},
+	}
+	assert.ErrorIs(t, reservedTarget.Validate(), ErrMountTargetReserved)
+
+	reservedTarget2 := ApplicationSettings{
+		Image:  "img:latest",
+		Mounts: []MountSetting{{Source: "/host/data", Target: "/rails/storage"}},
+	}
+	assert.ErrorIs(t, reservedTarget2.Validate(), ErrMountTargetReserved)
+
+	valid := ApplicationSettings{
+		Image: "img:latest",
+		Mounts: []MountSetting{
+			{Source: "/host/a", Target: "/container/a"},
+			{Source: "/host/b", Target: "/container/b"},
+		},
+	}
+	assert.NoError(t, valid.Validate())
+}
+
 func TestAutoUpdateAndBackupMarshalRoundTrip(t *testing.T) {
 	original := ApplicationSettings{
 		Name:       "app",
