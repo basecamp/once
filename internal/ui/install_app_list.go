@@ -15,7 +15,7 @@ type KnownApp struct {
 
 var knownApps = []KnownApp{
 	{Name: "Campfire", Alias: "campfire", ImageRef: "ghcr.io/basecamp/once-campfire"},
-	{Name: "Fizzy", Alias: "fizzy", ImageRef: "ghcr.io/basecamp/fizzy"},
+	{Name: "Fizzy", Alias: "fizzy", ImageRef: "ghcr.io/basecamp/fizzy:main"},
 	{Name: "Writebook", Alias: "writebook", ImageRef: "ghcr.io/basecamp/writebook"},
 }
 
