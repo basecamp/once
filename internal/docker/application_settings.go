@@ -2,6 +2,7 @@ package docker
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strconv"
 )
 
@@ -36,6 +37,11 @@ type BackupSettings struct {
 	AutoBackup bool   `json:"autoBackup,omitempty"`
 }
 
+type MountSetting struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
+}
+
 type ApplicationSettings struct {
 	Name       string             `json:"name"`
 	Image      string             `json:"image"`
@@ -46,6 +52,7 @@ type ApplicationSettings struct {
 	Resources  ContainerResources `json:"resources"`
 	AutoUpdate bool               `json:"autoUpdate"`
 	Backup     BackupSettings     `json:"backup"`
+	Mounts     []MountSetting     `json:"mounts,omitempty"`
 }
 
 func UnmarshalApplicationSettings(s string) (ApplicationSettings, error) {
@@ -65,6 +72,33 @@ func (s ApplicationSettings) Validate() error {
 	}
 	if s.Backup.AutoBackup && s.Backup.Path == "" {
 		return ErrAutoBackupWithoutPath
+	}
+	if err := ValidateMounts(s.Mounts); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ValidateMounts(mounts []MountSetting) error {
+	reserved := make(map[string]bool, len(AppVolumeMountTargets))
+	for _, t := range AppVolumeMountTargets {
+		reserved[t] = true
+	}
+	seen := make(map[string]bool)
+	for _, m := range mounts {
+		if !filepath.IsAbs(m.Source) {
+			return ErrMountSourceRelative
+		}
+		if !filepath.IsAbs(m.Target) {
+			return ErrMountTargetRelative
+		}
+		if reserved[m.Target] {
+			return ErrMountTargetReserved
+		}
+		if seen[m.Target] {
+			return ErrMountDuplicateTarget
+		}
+		seen[m.Target] = true
 	}
 	return nil
 }
@@ -94,6 +128,14 @@ func (s ApplicationSettings) Equal(other ApplicationSettings) bool {
 	}
 	for k, v := range s.EnvVars {
 		if other.EnvVars[k] != v {
+			return false
+		}
+	}
+	if len(s.Mounts) != len(other.Mounts) {
+		return false
+	}
+	for i, m := range s.Mounts {
+		if m != other.Mounts[i] {
 			return false
 		}
 	}

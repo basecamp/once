@@ -92,6 +92,8 @@ func NewSettings(ns *docker.Namespace, app *docker.Application, sectionType Sett
 		section = NewSettingsFormUpdates(app, appState.LastUpdateResult())
 	case SettingsSectionBackups:
 		section = NewSettingsFormBackups(app, appState.LastBackupResult())
+	case SettingsSectionMounts:
+		section = NewSettingsFormMounts(app.Settings)
 	}
 
 	h := NewHelp()
@@ -240,6 +242,10 @@ func (m Settings) navigateToDashboard() tea.Cmd {
 }
 
 func (m Settings) handleFormSubmit(msg SettingsSectionSubmitMsg) (Component, tea.Cmd) {
+	if err := msg.Settings.Validate(); err != nil {
+		m.err = err
+		return m, nil
+	}
 	if msg.Settings.Equal(m.app.Settings) {
 		return m, m.navigateToDashboard()
 	}
