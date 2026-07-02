@@ -19,7 +19,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.24
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.69.0
-	github.com/shirou/gopsutil/v4 v4.26.5
+	github.com/shirou/gopsutil/v4 v4.26.6
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 )
