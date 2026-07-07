@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/basecamp/once/internal/docker"
 	"github.com/basecamp/once/internal/metrics"
 	"github.com/basecamp/once/internal/system"
+	"github.com/basecamp/once/pkg/docker"
 )
 
 func TestFormatDuration(t *testing.T) {

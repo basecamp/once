@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/basecamp/once/internal/docker"
 	"github.com/basecamp/once/internal/logging"
 	"github.com/basecamp/once/internal/ui"
+	"github.com/basecamp/once/pkg/docker"
 )
 
 type RootCommand struct {

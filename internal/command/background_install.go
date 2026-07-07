@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/basecamp/once/internal/service"
+	"github.com/basecamp/once/pkg/service"
 )
 
 type backgroundInstallCommand struct {

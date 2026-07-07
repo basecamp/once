@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/basecamp/once/internal/docker"
+	"github.com/basecamp/once/pkg/docker"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

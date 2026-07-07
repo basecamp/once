@@ -29,7 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/basecamp/once/internal/command"
-	"github.com/basecamp/once/internal/docker"
+	"github.com/basecamp/once/pkg/docker"
 )
 
 func TestDockerDeployment(t *testing.T) {

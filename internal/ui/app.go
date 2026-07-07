@@ -10,12 +10,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
 
-	"github.com/basecamp/once/internal/docker"
 	"github.com/basecamp/once/internal/metrics"
 	"github.com/basecamp/once/internal/mouse"
 	"github.com/basecamp/once/internal/system"
 	"github.com/basecamp/once/internal/userstats"
-	"github.com/basecamp/once/internal/version"
+	"github.com/basecamp/once/pkg/docker"
+	"github.com/basecamp/once/pkg/version"
 )
 
 var appKeys = struct {

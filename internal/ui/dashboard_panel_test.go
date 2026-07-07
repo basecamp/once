@@ -7,8 +7,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/basecamp/once/internal/docker"
 	"github.com/basecamp/once/internal/metrics"
+	"github.com/basecamp/once/pkg/docker"
 )
 
 func TestDashboardPanelViewRunningApp(t *testing.T) {

@@ -7,9 +7,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/basecamp/once/internal/docker"
 	"github.com/basecamp/once/internal/userstats"
-	"github.com/basecamp/once/internal/version"
+	"github.com/basecamp/once/pkg/docker"
+	"github.com/basecamp/once/pkg/version"
 )
 
 const CheckInterval = 5 * time.Minute

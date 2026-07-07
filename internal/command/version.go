@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/basecamp/once/internal/version"
+	"github.com/basecamp/once/pkg/version"
 )
 
 type versionCommand struct {

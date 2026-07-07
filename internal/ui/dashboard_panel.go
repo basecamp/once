@@ -9,9 +9,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/basecamp/once/internal/docker"
 	"github.com/basecamp/once/internal/metrics"
 	"github.com/basecamp/once/internal/userstats"
+	"github.com/basecamp/once/pkg/docker"
 )
 
 const PanelHeight = 6

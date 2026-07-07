@@ -16,18 +16,48 @@ const (
 	githubReleasesURL = "https://api.github.com/repos/basecamp/once/releases/latest"
 	httpTimeout       = 30 * time.Second
 	updateTempFile    = ".once-update-tmp"
+	defaultBinaryName = "once"
 )
 
 type Updater struct {
 	currentVersion string
 	apiURL         string
+	binaryName     string
 	client         *http.Client
 	githubToken    string
 }
 
-func NewUpdater() *Updater {
+type UpdaterOption func(*Updater)
+
+// WithReleasesURL overrides the GitHub "latest release" API URL, so a downstream
+// tool can self-update from its own repository's releases.
+func WithReleasesURL(url string) UpdaterOption {
+	return func(u *Updater) { u.apiURL = url }
+}
+
+// WithBinaryName overrides the release asset prefix and the name shown in progress
+// messages. Assets are matched as "{name}-{GOOS}-{GOARCH}".
+func WithBinaryName(name string) UpdaterOption {
+	return func(u *Updater) { u.binaryName = name }
+}
+
+// WithCurrentVersion overrides the version compared against the latest release.
+// Defaults to the build-time version.Version of this module.
+func WithCurrentVersion(v string) UpdaterOption {
+	return func(u *Updater) { u.currentVersion = v }
+}
+
+// WithGitHubToken sets the token used for authenticated GitHub API requests.
+func WithGitHubToken(token string) UpdaterOption {
+	return func(u *Updater) { u.githubToken = token }
+}
+
+func NewUpdater(opts ...UpdaterOption) *Updater {
 	u := newUpdater(Version, githubReleasesURL, &http.Client{Timeout: httpTimeout})
 	u.githubToken = os.Getenv("GITHUB_TOKEN")
+	for _, opt := range opts {
+		opt(u)
+	}
 	return u
 }
 
@@ -35,6 +65,7 @@ func newUpdater(currentVersion, apiURL string, client *http.Client) *Updater {
 	return &Updater{
 		currentVersion: currentVersion,
 		apiURL:         apiURL,
+		binaryName:     defaultBinaryName,
 		client:         client,
 	}
 }
@@ -50,7 +81,7 @@ func (u *Updater) UpdateBinary() error {
 		return nil
 	}
 
-	assetName := fmt.Sprintf("once-%s-%s", runtime.GOOS, runtime.GOARCH)
+	assetName := fmt.Sprintf("%s-%s-%s", u.binaryName, runtime.GOOS, runtime.GOARCH)
 	var downloadURL string
 	for _, a := range rel.Assets {
 		if a.Name == assetName {
@@ -62,7 +93,7 @@ func (u *Updater) UpdateBinary() error {
 		return fmt.Errorf("no release asset found for %s", assetName)
 	}
 
-	fmt.Printf("Updating once from %s to %s...\n", u.currentVersion, rel.TagName)
+	fmt.Printf("Updating %s from %s to %s...\n", u.binaryName, u.currentVersion, rel.TagName)
 
 	execPath, err := os.Executable()
 	if err != nil {

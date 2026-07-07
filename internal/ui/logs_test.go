@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/basecamp/once/internal/docker"
+	"github.com/basecamp/once/pkg/docker"
 )
 
 func newTestLogs() Logs {

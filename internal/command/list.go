@@ -7,7 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
 
-	"github.com/basecamp/once/internal/docker"
+	"github.com/basecamp/once/pkg/docker"
 )
 
 var hostStyle = lipgloss.NewStyle().Foreground(lipgloss.BrightBlue)
