@@ -36,16 +36,23 @@ type BackupSettings struct {
 	AutoBackup bool   `json:"autoBackup,omitempty"`
 }
 
+// RegistryCredentials are used to authenticate Docker image pulls.
+type RegistryCredentials struct {
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
 type ApplicationSettings struct {
-	Name       string             `json:"name"`
-	Image      string             `json:"image"`
-	Host       string             `json:"host"`
-	DisableTLS bool               `json:"disableTLS"`
-	EnvVars    map[string]string  `json:"env"`
-	SMTP       SMTPSettings       `json:"smtp"`
-	Resources  ContainerResources `json:"resources"`
-	AutoUpdate bool               `json:"autoUpdate"`
-	Backup     BackupSettings     `json:"backup"`
+	Name                string               `json:"name"`
+	Image               string               `json:"image"`
+	RegistryCredentials *RegistryCredentials `json:"registryCredentials,omitempty"`
+	Host                string               `json:"host"`
+	DisableTLS          bool                 `json:"disableTLS"`
+	EnvVars             map[string]string    `json:"env"`
+	SMTP                SMTPSettings         `json:"smtp"`
+	Resources           ContainerResources   `json:"resources"`
+	AutoUpdate          bool                 `json:"autoUpdate"`
+	Backup              BackupSettings       `json:"backup"`
 }
 
 func UnmarshalApplicationSettings(s string) (ApplicationSettings, error) {
@@ -75,6 +82,9 @@ func (s ApplicationSettings) TLSEnabled() bool {
 
 func (s ApplicationSettings) Equal(other ApplicationSettings) bool {
 	if s.Name != other.Name || s.Image != other.Image || s.Host != other.Host || s.DisableTLS != other.DisableTLS {
+		return false
+	}
+	if !registryCredentialsEqual(s.RegistryCredentials, other.RegistryCredentials) {
 		return false
 	}
 	if s.Resources != other.Resources {
@@ -122,4 +132,17 @@ func (s ApplicationSettings) BuildEnv(vol ApplicationVolumeSettings) []string {
 	}
 
 	return env
+}
+
+// Helpers
+
+func registryCredentialsEqual(a, b *RegistryCredentials) bool {
+	if a == nil || b == nil {
+		return registryCredentialsEmpty(a) && registryCredentialsEmpty(b)
+	}
+	return *a == *b
+}
+
+func registryCredentialsEmpty(c *RegistryCredentials) bool {
+	return c == nil || (c.Username == "" && c.Password == "")
 }

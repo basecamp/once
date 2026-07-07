@@ -8,10 +8,16 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 )
 
-// registryAuthFor returns a base64-encoded JSON auth string for the registry
-// that hosts the given image, suitable for use in image.PullOptions.RegistryAuth.
-// Returns "" on any error or missing credentials, falling back to anonymous access.
-func registryAuthFor(imageName string) string {
+// registryAuthFor returns a base64-encoded JSON auth string suitable for use in
+// image.PullOptions.RegistryAuth. Returns "" on any error or missing credentials.
+func registryAuthFor(imageName string, credentials *RegistryCredentials) string {
+	if !registryCredentialsEmpty(credentials) {
+		return registryAuthToken(&authn.AuthConfig{
+			Username: credentials.Username,
+			Password: credentials.Password,
+		})
+	}
+
 	ref, err := name.ParseReference(imageName)
 	if err != nil {
 		return ""
@@ -24,6 +30,10 @@ func registryAuthFor(imageName string) string {
 	if err != nil {
 		return ""
 	}
+	return registryAuthToken(cfg)
+}
+
+func registryAuthToken(cfg *authn.AuthConfig) string {
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		return ""

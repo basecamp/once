@@ -79,6 +79,52 @@ func TestContainerResourcesMarshalRoundTrip(t *testing.T) {
 	assert.True(t, original.Equal(restored))
 }
 
+func TestRegistryCredentialsMarshalRoundTrip(t *testing.T) {
+	original := ApplicationSettings{
+		Name:  "app",
+		Image: "img:latest",
+		RegistryCredentials: &RegistryCredentials{
+			Username: "registry-user",
+			Password: "registry-pass",
+		},
+	}
+
+	restored, err := UnmarshalApplicationSettings(original.Marshal())
+	require.NoError(t, err)
+	require.NotNil(t, restored.RegistryCredentials)
+	assert.Equal(t, "registry-user", restored.RegistryCredentials.Username)
+	assert.Equal(t, "registry-pass", restored.RegistryCredentials.Password)
+	assert.True(t, original.Equal(restored))
+}
+
+func TestRegistryCredentialsOmittedWhenEmpty(t *testing.T) {
+	settings := ApplicationSettings{Name: "app", Image: "img:latest"}
+
+	assert.NotContains(t, settings.Marshal(), "registryCredentials")
+}
+
+func TestRegistryCredentialsEqualDiffers(t *testing.T) {
+	base := ApplicationSettings{
+		Name:  "app",
+		Image: "img:latest",
+		RegistryCredentials: &RegistryCredentials{
+			Username: "registry-user",
+			Password: "registry-pass",
+		},
+	}
+
+	differentUsername := base
+	differentUsername.RegistryCredentials = &RegistryCredentials{Username: "other-user", Password: "registry-pass"}
+	assert.False(t, base.Equal(differentUsername))
+
+	differentPassword := base
+	differentPassword.RegistryCredentials = &RegistryCredentials{Username: "registry-user", Password: "other-pass"}
+	assert.False(t, base.Equal(differentPassword))
+
+	assert.False(t, base.Equal(ApplicationSettings{Name: "app", Image: "img:latest"}))
+	assert.True(t, ApplicationSettings{Name: "app", Image: "img:latest"}.Equal(ApplicationSettings{Name: "app", Image: "img:latest"}))
+}
+
 func TestAutoUpdateEqualDiffers(t *testing.T) {
 	base := ApplicationSettings{Name: "app", AutoUpdate: false}
 	different := ApplicationSettings{Name: "app", AutoUpdate: true}
