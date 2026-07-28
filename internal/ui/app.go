@@ -11,10 +11,10 @@ import (
 	"github.com/charmbracelet/colorprofile"
 
 	"github.com/basecamp/once/internal/metrics"
-	"github.com/basecamp/once/internal/mouse"
 	"github.com/basecamp/once/internal/system"
 	"github.com/basecamp/once/internal/userstats"
 	"github.com/basecamp/once/pkg/docker"
+	"github.com/basecamp/once/pkg/mouse"
 	"github.com/basecamp/once/pkg/version"
 )
 

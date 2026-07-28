@@ -8,8 +8,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/basecamp/once/internal/mouse"
 	"github.com/basecamp/once/pkg/docker"
+	"github.com/basecamp/once/pkg/mouse"
 )
 
 type SettingsFormEnvironment struct {
