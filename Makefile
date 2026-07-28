@@ -19,7 +19,7 @@ build-all:
 	done
 
 test:
-	go test ./internal/...
+	go test ./internal/... ./pkg/...
 
 integration:
 	go test -v -count=1 ./integration/...
@@ -32,7 +32,7 @@ lint-actions:
 	zizmor .
 
 coverage:
-	go test -coverprofile=coverage.out ./internal/...
+	go test -coverprofile=coverage.out ./internal/... ./pkg/...
 	go tool cover -html=coverage.out
 
 dist: build-all
