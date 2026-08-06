@@ -98,6 +98,8 @@ type ApplicationSettings struct {
 	Keys       Keys               `json:"keys"`
 }
 
+type SettingsModifier func(ApplicationSettings) (ApplicationSettings, error)
+
 func UnmarshalApplicationSettings(s string) (ApplicationSettings, error) {
 	var settings ApplicationSettings
 	err := json.Unmarshal([]byte(s), &settings)

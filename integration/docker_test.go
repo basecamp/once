@@ -506,7 +506,7 @@ func TestRestore(t *testing.T) {
 	require.NoError(t, err)
 	defer backupFile.Close()
 
-	restoredApp, err := ns2.Restore(ctx, backupFile)
+	restoredApp, err := ns2.Restore(ctx, backupFile, nil)
 	require.NoError(t, err)
 
 	// Verify the restored app gets a fresh unique name based on the image
@@ -569,8 +569,54 @@ func TestRestoreHostnameConflictFails(t *testing.T) {
 	require.NoError(t, err)
 	defer backupFile.Close()
 
-	_, err = ns.Restore(ctx, backupFile)
+	_, err = ns.Restore(ctx, backupFile, nil)
 	assert.ErrorIs(t, err, docker.ErrHostnameInUse)
+}
+
+func TestRestoreWithNewHost(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ns := newTestNamespace(t, "once-restore-newhost-test")
+
+	require.NoError(t, ns.EnsureNetwork(ctx))
+	require.NoError(t, ns.Proxy().Boot(ctx, getProxyPorts(t)))
+
+	app := deployApp(t, ctx, ns, docker.ApplicationSettings{
+		Name:  "newhostapp",
+		Image: integrationAppImageRef,
+		Host:  "newhost-src.localhost",
+	})
+
+	backupDir := t.TempDir()
+	require.NoError(t, app.BackupToFile(ctx, backupDir, "backup.tar.gz"))
+
+	backupFile, err := os.Open(filepath.Join(backupDir, "backup.tar.gz"))
+	require.NoError(t, err)
+	defer backupFile.Close()
+
+	setHost := func(host string) docker.SettingsModifier {
+		return func(s docker.ApplicationSettings) (docker.ApplicationSettings, error) {
+			s.Host = host
+			return s, nil
+		}
+	}
+
+	// A new host that is already in use should still conflict
+	_, err = ns.Restore(ctx, backupFile, setHost("newhost-src.localhost"))
+	assert.ErrorIs(t, err, docker.ErrHostnameInUse)
+
+	// A fresh host allows restoring even though the original host is in use
+	_, err = backupFile.Seek(0, io.SeekStart)
+	require.NoError(t, err)
+
+	restoredApp, err := ns.Restore(ctx, backupFile, setHost("newhost-dst.localhost"))
+	require.NoError(t, err)
+
+	assert.Equal(t, "newhost-dst.localhost", restoredApp.Settings.Host)
+	assert.True(t, ns.HostInUse("newhost-dst.localhost"))
 }
 
 func TestBackupHookBehavior(t *testing.T) {
@@ -685,7 +731,7 @@ func TestRestoreWithPostRestoreHook(t *testing.T) {
 	require.NoError(t, ns.EnsureNetwork(ctx))
 	require.NoError(t, ns.Proxy().Boot(ctx, getProxyPorts(t)))
 
-	restoredApp, err := ns.Restore(ctx, bytes.NewReader(backup))
+	restoredApp, err := ns.Restore(ctx, bytes.NewReader(backup), nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, restoredApp.Settings.Name)
 	assert.Equal(t, "test-secret-key", restoredApp.Settings.Keys.SecretKeyBase, "legacy key from backup volume settings should migrate to app settings")
@@ -711,7 +757,7 @@ func TestRestoreFailsWithFailedPostRestoreHook(t *testing.T) {
 	require.NoError(t, ns.EnsureNetwork(ctx))
 	require.NoError(t, ns.Proxy().Boot(ctx, getProxyPorts(t)))
 
-	_, err := ns.Restore(ctx, bytes.NewReader(backup))
+	_, err := ns.Restore(ctx, bytes.NewReader(backup), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "post-restore")
 }

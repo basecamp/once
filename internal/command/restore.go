@@ -11,7 +11,8 @@ import (
 )
 
 type restoreCommand struct {
-	cmd *cobra.Command
+	cmd   *cobra.Command
+	flags settingsFlags
 }
 
 func newRestoreCommand() *restoreCommand {
@@ -22,6 +23,9 @@ func newRestoreCommand() *restoreCommand {
 		Args:  cobra.ExactArgs(1),
 		RunE:  WithNamespace(r.run),
 	}
+
+	r.flags.register(r.cmd)
+
 	return r
 }
 
@@ -40,7 +44,9 @@ func (r *restoreCommand) run(ctx context.Context, ns *docker.Namespace, cmd *cob
 		return fmt.Errorf("setting up namespace: %w", err)
 	}
 
-	app, err := ns.Restore(ctx, file)
+	app, err := ns.Restore(ctx, file, func(s docker.ApplicationSettings) (docker.ApplicationSettings, error) {
+		return r.flags.applyChanges(cmd, s, s.Image)
+	})
 	if err != nil {
 		return fmt.Errorf("restoring application: %w", err)
 	}

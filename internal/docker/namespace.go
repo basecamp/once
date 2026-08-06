@@ -227,10 +227,17 @@ func (n *Namespace) SaveState(ctx context.Context, state *State) error {
 	return n.proxy.SaveState(ctx, state)
 }
 
-func (n *Namespace) Restore(ctx context.Context, r io.ReadSeeker) (*Application, error) {
+func (n *Namespace) Restore(ctx context.Context, r io.ReadSeeker, modifySettings SettingsModifier) (*Application, error) {
 	appSettings, volSettings, err := readBackupSettings(r)
 	if err != nil {
 		return nil, fmt.Errorf("parsing backup: %w", err)
+	}
+
+	if modifySettings != nil {
+		appSettings, err = modifySettings(appSettings)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if n.HostInUse(appSettings.Host) {
