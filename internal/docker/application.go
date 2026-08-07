@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -292,19 +291,12 @@ func (a *Application) pullImage(ctx context.Context, progress DeployProgressCall
 	opts := image.PullOptions{RegistryAuth: registryAuthFor(a.Settings.Image)}
 	reader, err := a.namespace.client.ImagePull(ctx, a.Settings.Image, opts)
 	if err != nil {
-		return false, fmt.Errorf("%w: %w", ErrPullFailed, err)
+		return false, a.pullError(err)
 	}
 	defer reader.Close()
 
-	if progress != nil {
-		tracker := newPullProgressTracker(progress)
-		if err := tracker.Track(reader); err != nil {
-			return false, fmt.Errorf("%w: %w", ErrPullFailed, err)
-		}
-	} else {
-		if _, err := io.Copy(io.Discard, reader); err != nil {
-			return false, fmt.Errorf("%w: %w", ErrPullFailed, err)
-		}
+	if err := newPullProgressTracker(progress).Track(reader); err != nil {
+		return false, a.pullError(err)
 	}
 
 	pulledInspect, err := a.namespace.client.ImageInspect(ctx, a.Settings.Image)
@@ -313,6 +305,13 @@ func (a *Application) pullImage(ctx context.Context, progress DeployProgressCall
 	}
 
 	return pulledInspect.ID != a.runningImageID(ctx), nil
+}
+
+func (a *Application) pullError(err error) error {
+	if isRegistryAuthError(err) {
+		return &RegistryAuthError{Registry: registryHostFor(a.Settings.Image), Cause: err}
+	}
+	return fmt.Errorf("%w: %w", ErrPullFailed, err)
 }
 
 func (a *Application) runningImageID(ctx context.Context) string {

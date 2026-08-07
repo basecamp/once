@@ -26,6 +26,7 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
@@ -256,6 +257,32 @@ func TestUpdateDetectsLocalImageChange(t *testing.T) {
 	secondContainer, err := app.ContainerName(ctx)
 	require.NoError(t, err)
 	assert.NotEqual(t, firstContainer, secondContainer, "container should change after update")
+}
+
+func TestDeployDetectsMissingRegistryCredentials(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	registryURL := startLocalAuthRegistry(t, ctx)
+	imageTag := registryURL + "/private-test:latest"
+	auth := remote.WithAuth(&authn.Basic{Username: "testuser", Password: "testpass"})
+	buildAndPushImage(t, ctx, imageTag, "v1", auth)
+
+	t.Setenv("DOCKER_CONFIG", t.TempDir())
+
+	ns := newTestNamespace(t, "once-auth-test")
+
+	err := docker.NewApplication(ns, docker.ApplicationSettings{
+		Name:  "authapp",
+		Image: imageTag,
+		Host:  "authapp.localhost",
+	}).Deploy(ctx, nil)
+
+	var authErr *docker.RegistryAuthError
+	require.ErrorAs(t, err, &authErr)
+	assert.Equal(t, registryURL, authErr.Registry)
+	assert.ErrorIs(t, err, docker.ErrPullFailed)
+	assert.Equal(t, "Log in to "+registryURL+" first. This image can't be downloaded without registry credentials.", docker.ErrorMessage(err))
 }
 
 func TestLargeLabelData(t *testing.T) {
@@ -1268,6 +1295,27 @@ func collectPauseEvents(t *testing.T, ctx context.Context, containerName string)
 }
 
 func startLocalRegistry(t *testing.T, ctx context.Context) string {
+	return startRegistryContainer(t, ctx, nil, nil, http.StatusOK)
+}
+
+func startLocalAuthRegistry(t *testing.T, ctx context.Context) string {
+	t.Helper()
+
+	authDir := t.TempDir()
+	htpasswd := "testuser:$2a$04$MpM8fR.Xgy8DLIwkC85y/eyL7GYvMxHPMcfv7JJCJElJuTjezW.Xa\n" // bcrypt of "testpass"
+	require.NoError(t, os.WriteFile(filepath.Join(authDir, "htpasswd"), []byte(htpasswd), 0644))
+
+	env := []string{
+		"REGISTRY_AUTH=htpasswd",
+		"REGISTRY_AUTH_HTPASSWD_REALM=test",
+		"REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd",
+	}
+	binds := []string{authDir + ":/auth:ro"}
+
+	return startRegistryContainer(t, ctx, env, binds, http.StatusUnauthorized)
+}
+
+func startRegistryContainer(t *testing.T, ctx context.Context, env, binds []string, readyStatus int) string {
 	t.Helper()
 	c, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	require.NoError(t, err)
@@ -1282,8 +1330,9 @@ func startLocalRegistry(t *testing.T, ctx context.Context) string {
 	portStr := strconv.Itoa(port)
 
 	resp, err := c.ContainerCreate(ctx,
-		&container.Config{Image: "registry:2"},
+		&container.Config{Image: "registry:2", Env: env},
 		&container.HostConfig{
+			Binds: binds,
 			PortBindings: nat.PortMap{
 				"5000/tcp": []nat.PortBinding{{HostPort: portStr}},
 			},
@@ -1304,7 +1353,7 @@ func startLocalRegistry(t *testing.T, ctx context.Context) string {
 			return false
 		}
 		resp.Body.Close()
-		return resp.StatusCode == http.StatusOK
+		return resp.StatusCode == readyStatus
 	}, 10*time.Second, 200*time.Millisecond, "registry did not become ready")
 
 	return registryURL
@@ -1349,12 +1398,12 @@ func baseImage(t *testing.T, ctx context.Context) v1.Image {
 	return img
 }
 
-func pushToRegistry(t *testing.T, ctx context.Context, tag string, img v1.Image) {
+func pushToRegistry(t *testing.T, ctx context.Context, tag string, img v1.Image, opts ...remote.Option) {
 	t.Helper()
 
 	ref, err := name.ParseReference(tag)
 	require.NoError(t, err)
-	require.NoError(t, remote.Write(ref, img, remote.WithContext(ctx)))
+	require.NoError(t, remote.Write(ref, img, append([]remote.Option{remote.WithContext(ctx)}, opts...)...))
 }
 
 func buildTestBackup(t *testing.T, imageName string) []byte {
@@ -1454,7 +1503,7 @@ func extractTarGz(t *testing.T, r io.Reader) map[string][]byte {
 	return entries
 }
 
-func buildAndPushImage(t *testing.T, ctx context.Context, tag, version string) {
+func buildAndPushImage(t *testing.T, ctx context.Context, tag, version string, opts ...remote.Option) {
 	t.Helper()
 
 	base := baseImage(t, ctx)
@@ -1470,5 +1519,5 @@ func buildAndPushImage(t *testing.T, ctx context.Context, tag, version string) {
 	img, err := mutate.ConfigFile(base, cfg)
 	require.NoError(t, err)
 
-	pushToRegistry(t, ctx, tag, img)
+	pushToRegistry(t, ctx, tag, img, opts...)
 }

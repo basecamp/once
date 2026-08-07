@@ -261,6 +261,20 @@ func TestInstall_PullFailureReturnsToAppList(t *testing.T) {
 	assert.Equal(t, pullErr, m.err)
 }
 
+func TestInstall_AuthFailureShowsLoginMessage(t *testing.T) {
+	ns := newTestNamespace()
+	m := NewInstall(ns, "")
+	m, _ = updateInstall(m, tea.WindowSizeMsg{Width: 120, Height: 24})
+	m, _ = updateInstall(m, InstallCustomSelectedMsg{})
+	m, _ = updateInstall(m, InstallImageSubmitMsg{ImageRef: "ghcr.io/acme/private"})
+	m, _ = updateInstall(m, InstallFormSubmitMsg{ImageRef: "ghcr.io/acme/private", Hostname: "app.example.com"})
+
+	authErr := &docker.RegistryAuthError{Registry: "ghcr.io", Cause: errors.New("no basic auth credentials")}
+	m, _ = updateInstall(m, InstallActivityFailedMsg{Err: fmt.Errorf("%w: %w", docker.ErrDeployFailed, authErr)})
+	assert.Equal(t, installStateImageForm, m.state)
+	assert.Contains(t, m.View(), "Log in to ghcr.io first")
+}
+
 func TestInstall_NonPullDeployFailureReturnsToHostname(t *testing.T) {
 	ns := newTestNamespace()
 	m := NewInstall(ns, "")

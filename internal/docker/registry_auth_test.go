@@ -12,6 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRegistryHostFor(t *testing.T) {
+	assert.Equal(t, "docker.io", registryHostFor("nginx"))
+	assert.Equal(t, "docker.io", registryHostFor("acme/private:latest"))
+	assert.Equal(t, "ghcr.io", registryHostFor("ghcr.io/basecamp/once-campfire:latest"))
+	assert.Equal(t, "localhost:5000", registryHostFor("localhost:5000/foo"))
+	assert.Equal(t, "the registry", registryHostFor(":::bad"))
+}
+
 func TestRegistryAuthFor(t *testing.T) {
 	t.Run("invalid image string", func(t *testing.T) {
 		isolateDockerConfig(t)

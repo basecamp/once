@@ -60,6 +60,10 @@ func (t *pullProgressTracker) Track(reader io.Reader) error {
 			return err
 		}
 
+		if msg.Error != nil {
+			return msg.Error
+		}
+
 		t.processMessage(msg)
 	}
 
@@ -115,6 +119,9 @@ func (t *pullProgressTracker) reportProgress() {
 }
 
 func (t *pullProgressTracker) report(percentage int) {
+	if t.callback == nil {
+		return
+	}
 	t.callback(DeployProgress{
 		Stage:      DeployStageDownloading,
 		Percentage: percentage,

@@ -30,3 +30,17 @@ func registryAuthFor(imageName string) string {
 	}
 	return base64.URLEncoding.EncodeToString(data)
 }
+
+// registryHostFor returns the registry hostname for the given image, in the
+// form a user would pass to `docker login`.
+func registryHostFor(imageName string) string {
+	ref, err := name.ParseReference(imageName)
+	if err != nil {
+		return "the registry"
+	}
+	registry := ref.Context().RegistryStr()
+	if registry == name.DefaultRegistry {
+		return "docker.io"
+	}
+	return registry
+}

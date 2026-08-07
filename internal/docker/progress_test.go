@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPullProgressTracker(t *testing.T) {
@@ -59,6 +60,18 @@ func TestPullProgressTrackerWithCachedLayers(t *testing.T) {
 
 	lastUpdate := progressUpdates[len(progressUpdates)-1]
 	assert.Equal(t, 100, lastUpdate.Percentage)
+}
+
+func TestPullProgressTrackerReturnsStreamError(t *testing.T) {
+	events := `{"status":"Pulling from acme/private","id":"latest"}
+{"errorDetail":{"message":"unauthorized: authentication required"},"error":"unauthorized: authentication required"}
+`
+
+	tracker := newPullProgressTracker(nil)
+	err := tracker.Track(strings.NewReader(events))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unauthorized: authentication required")
 }
 
 // Helpers
