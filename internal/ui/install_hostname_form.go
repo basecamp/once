@@ -70,3 +70,7 @@ func (m InstallHostnameForm) View() string {
 func (m InstallHostnameForm) Hostname() string {
 	return m.form.TextField(0).Value()
 }
+
+func (m InstallHostnameForm) SetHostname(v string) {
+	m.form.TextField(0).SetValue(v)
+}

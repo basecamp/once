@@ -261,18 +261,67 @@ func TestInstall_PullFailureReturnsToAppList(t *testing.T) {
 	assert.Equal(t, pullErr, m.err)
 }
 
-func TestInstall_AuthFailureShowsLoginMessage(t *testing.T) {
-	ns := newTestNamespace()
-	m := NewInstall(ns, "")
-	m, _ = updateInstall(m, tea.WindowSizeMsg{Width: 120, Height: 24})
-	m, _ = updateInstall(m, InstallCustomSelectedMsg{})
-	m, _ = updateInstall(m, InstallImageSubmitMsg{ImageRef: "ghcr.io/acme/private"})
+func TestInstall_AuthFailureShowsCredentialFields(t *testing.T) {
+	m := installWithAuthFailure(t)
+
+	assert.Equal(t, installStateImageForm, m.state)
+	view := ansi.Strip(m.View())
+	assert.Contains(t, view, "Log in to ghcr.io first")
+	assert.Contains(t, view, "Username")
+	assert.Contains(t, view, "Password")
+	assert.Equal(t, "ghcr.io/acme/private", m.imageForm.form.TextField(0).Value())
+}
+
+func TestInstall_AuthFailureRetryCarriesCredentials(t *testing.T) {
+	m := installWithAuthFailure(t)
+
+	m, _ = updateInstall(m, InstallImageSubmitMsg{ImageRef: "ghcr.io/acme/private", Username: "myuser", Password: "mypass"})
+	assert.Equal(t, installStateHostname, m.state)
+	assert.Equal(t, "app.example.com", m.hostnameForm.Hostname(), "hostname should carry over to the retry")
+
+	m, _ = updateInstall(m, InstallFormSubmitMsg{ImageRef: "ghcr.io/acme/private", Hostname: "app.example.com"})
+	assert.Equal(t, installStateActivity, m.state)
+	assert.Equal(t, docker.RegistrySettings{Username: "myuser", Password: "mypass"}, m.activity.registry)
+}
+
+func TestInstall_SecondAuthFailurePrefillsUsername(t *testing.T) {
+	m := installWithAuthFailure(t)
+	m, _ = updateInstall(m, InstallImageSubmitMsg{ImageRef: "ghcr.io/acme/private", Username: "myuser", Password: "wrong"})
 	m, _ = updateInstall(m, InstallFormSubmitMsg{ImageRef: "ghcr.io/acme/private", Hostname: "app.example.com"})
 
 	authErr := &docker.RegistryAuthError{Registry: "ghcr.io", Cause: errors.New("no basic auth credentials")}
 	m, _ = updateInstall(m, InstallActivityFailedMsg{Err: fmt.Errorf("%w: %w", docker.ErrDeployFailed, authErr)})
 	assert.Equal(t, installStateImageForm, m.state)
-	assert.Contains(t, m.View(), "Log in to ghcr.io first")
+	assert.Equal(t, "myuser", m.imageForm.form.TextField(1).Value())
+}
+
+func TestInstall_AuthFailureOnKnownAppReturnsToAppList(t *testing.T) {
+	ns := newTestNamespace()
+	m := NewInstall(ns, "")
+	m, _ = updateInstall(m, tea.WindowSizeMsg{Width: 120, Height: 24})
+	m, _ = updateInstall(m, InstallAppSelectedMsg{ImageRef: "ghcr.io/basecamp/once-campfire"})
+	m, _ = updateInstall(m, InstallFormSubmitMsg{ImageRef: "ghcr.io/basecamp/once-campfire", Hostname: "chat.example.com"})
+
+	authErr := &docker.RegistryAuthError{Registry: "ghcr.io", Cause: errors.New("no basic auth credentials")}
+	m, _ = updateInstall(m, InstallActivityFailedMsg{Err: fmt.Errorf("%w: %w", docker.ErrDeployFailed, authErr)})
+	assert.Equal(t, installStateAppList, m.state)
+}
+
+func TestInstall_AuthFailureInCLIModeShowsCredentialFields(t *testing.T) {
+	m := NewInstall(newTestNamespace(), "ghcr.io/acme/private")
+	m, _ = updateInstall(m, tea.WindowSizeMsg{Width: 120, Height: 24})
+	m, _ = updateInstall(m, InstallFormSubmitMsg{ImageRef: "ghcr.io/acme/private", Hostname: "app.example.com"})
+
+	authErr := &docker.RegistryAuthError{Registry: "ghcr.io", Cause: errors.New("no basic auth credentials")}
+	m, _ = updateInstall(m, InstallActivityFailedMsg{Err: fmt.Errorf("%w: %w", docker.ErrDeployFailed, authErr)})
+	assert.Equal(t, installStateImageForm, m.state)
+	assert.Equal(t, "ghcr.io/acme/private", m.imageForm.form.TextField(0).Value())
+
+	// Esc from the image form quits in CLI mode.
+	_, cmd := updateInstall(m, keyPressMsg("esc"))
+	require.NotNil(t, cmd)
+	_, ok := cmd().(QuitMsg)
+	assert.True(t, ok, "expected QuitMsg")
 }
 
 func TestInstall_NonPullDeployFailureReturnsToHostname(t *testing.T) {
@@ -411,4 +460,19 @@ func newTestNamespace(apps ...docker.ApplicationSettings) *docker.Namespace {
 func updateInstall(m Install, msg tea.Msg) (Install, tea.Cmd) {
 	comp, cmd := m.Update(msg)
 	return comp.(Install), cmd
+}
+
+// installWithAuthFailure drives a custom image install up to a registry
+// credentials failure.
+func installWithAuthFailure(t *testing.T) Install {
+	t.Helper()
+	m := newTestInstall()
+	m, _ = updateInstall(m, tea.WindowSizeMsg{Width: 120, Height: 24})
+	m, _ = updateInstall(m, InstallCustomSelectedMsg{})
+	m, _ = updateInstall(m, InstallImageSubmitMsg{ImageRef: "ghcr.io/acme/private"})
+	m, _ = updateInstall(m, InstallFormSubmitMsg{ImageRef: "ghcr.io/acme/private", Hostname: "app.example.com"})
+
+	authErr := &docker.RegistryAuthError{Registry: "ghcr.io", Cause: errors.New("no basic auth credentials")}
+	m, _ = updateInstall(m, InstallActivityFailedMsg{Err: fmt.Errorf("%w: %w", docker.ErrDeployFailed, authErr)})
+	return m
 }

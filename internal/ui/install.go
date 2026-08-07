@@ -52,6 +52,9 @@ type Install struct {
 	cliMode       bool
 	customImage   bool
 	installFlag   string
+	imageRef      string
+	hostname      string
+	registry      docker.RegistrySettings
 }
 
 func NewInstall(ns *docker.Namespace, imageRef string) Install {
@@ -71,6 +74,7 @@ func NewInstall(ns *docker.Namespace, imageRef string) Install {
 		}
 		m.state = installStateHostname
 		m.hostnameForm = NewInstallHostnameForm(imageRef, m.installFlag)
+		m.imageRef = imageRef
 	} else {
 		m.state = installStateAppList
 		m.appList = NewInstallAppList()
@@ -168,21 +172,33 @@ func (m Install) Update(msg tea.Msg) (Component, tea.Cmd) {
 	case InstallAppSelectedMsg:
 		m.hostnameForm = NewInstallHostnameForm(msg.ImageRef, "")
 		m.customImage = false
+		m.imageRef = msg.ImageRef
+		m.hostname = ""
+		m.registry = docker.RegistrySettings{}
 		m.state = installStateHostname
 		return m, m.initScreenWithSize()
 
 	case InstallCustomSelectedMsg:
 		m.imageForm = NewInstallImageForm()
+		m.imageRef = ""
+		m.hostname = ""
+		m.registry = docker.RegistrySettings{}
 		m.state = installStateImageForm
 		return m, m.initScreenWithSize()
 
 	case InstallImageSubmitMsg:
 		m.hostnameForm = NewInstallHostnameForm(msg.ImageRef, "")
+		m.hostnameForm.SetHostname(m.hostname)
 		m.customImage = true
+		m.imageRef = msg.ImageRef
+		m.registry = docker.RegistrySettings{Username: msg.Username, Password: msg.Password}
 		m.state = installStateHostname
 		return m, m.initScreenWithSize()
 
 	case InstallImageBackMsg:
+		if m.cliMode {
+			return m, m.cancelFromScreen()
+		}
 		m.state = installStateAppList
 		return m, nil
 
@@ -202,8 +218,9 @@ func (m Install) Update(msg tea.Msg) (Component, tea.Cmd) {
 			m.err = docker.ErrHostnameInUse
 			return m, nil
 		}
+		m.hostname = msg.Hostname
 		m.state = installStateActivity
-		m.activity = NewInstallActivity(m.namespace, msg.ImageRef, msg.Hostname)
+		m.activity = NewInstallActivity(m.namespace, msg.ImageRef, msg.Hostname, m.registry)
 		m.activity.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
 		return m, m.activity.Init()
 
@@ -211,6 +228,12 @@ func (m Install) Update(msg tea.Msg) (Component, tea.Cmd) {
 		_ = m.namespace.Refresh(context.Background())
 		m.activity = nil
 		m.err = msg.Err
+		var authErr *docker.RegistryAuthError
+		if errors.As(msg.Err, &authErr) && (m.customImage || m.cliMode) {
+			m.imageForm = NewInstallImageFormWithCredentials(m.imageRef, m.registry.Username)
+			m.state = installStateImageForm
+			return m, m.initScreenWithSize()
+		}
 		if errors.Is(msg.Err, docker.ErrPullFailed) {
 			m.state = m.imageErrorState()
 		} else {
@@ -326,6 +349,9 @@ func (m Install) handleBack() (Install, tea.Cmd) {
 	case installStateAppList:
 		return m, m.cancelFromScreen()
 	case installStateImageForm:
+		if m.cliMode {
+			return m, m.cancelFromScreen()
+		}
 		m.state = installStateAppList
 		return m, nil
 	case installStateHostname:

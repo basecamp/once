@@ -49,6 +49,56 @@ func TestInstallImageForm_Cancel(t *testing.T) {
 	assert.True(t, ok, "expected InstallImageBackMsg, got %T", msg)
 }
 
+func TestInstallImageForm_SubmitWithoutCredentialFields(t *testing.T) {
+	form := NewInstallImageForm()
+
+	imageFormTypeText(&form, "ghcr.io/acme/private")
+	imageFormPressTab(&form)
+	form, cmd := form.Update(keyPressMsg("enter"))
+	require.NotNil(t, cmd)
+
+	submit := cmd().(InstallImageSubmitMsg)
+	assert.Empty(t, submit.Username)
+	assert.Empty(t, submit.Password)
+}
+
+func TestInstallImageForm_SubmitWithCredentials(t *testing.T) {
+	form := NewInstallImageFormWithCredentials("ghcr.io/acme/private", "olduser")
+	assert.Equal(t, "olduser", form.form.TextField(1).Value())
+
+	form.form.TextField(1).SetValue("")
+	imageFormPressTab(&form)
+	imageFormTypeText(&form, "myuser")
+	imageFormPressTab(&form)
+	imageFormTypeText(&form, "mypass")
+	imageFormPressTab(&form)
+	form, cmd := form.Update(keyPressMsg("enter"))
+	require.NotNil(t, cmd)
+
+	msg := cmd()
+	submit, ok := msg.(InstallImageSubmitMsg)
+	require.True(t, ok, "expected InstallImageSubmitMsg, got %T", msg)
+	assert.Equal(t, "ghcr.io/acme/private", submit.ImageRef)
+	assert.Equal(t, "myuser", submit.Username)
+	assert.Equal(t, "mypass", submit.Password)
+}
+
+func TestInstallImageForm_CredentialsAreOptional(t *testing.T) {
+	form := NewInstallImageFormWithCredentials("ghcr.io/acme/private", "")
+
+	imageFormPressTab(&form)
+	imageFormPressTab(&form)
+	imageFormPressTab(&form)
+	form, cmd := form.Update(keyPressMsg("enter"))
+	require.NotNil(t, cmd)
+
+	submit, ok := cmd().(InstallImageSubmitMsg)
+	require.True(t, ok, "expected InstallImageSubmitMsg")
+	assert.Equal(t, "ghcr.io/acme/private", submit.ImageRef)
+	assert.Empty(t, submit.Username)
+	assert.Empty(t, submit.Password)
+}
+
 func TestInstallImageForm_RequiresImage(t *testing.T) {
 	form := NewInstallImageForm()
 
