@@ -288,7 +288,7 @@ func (a *Application) saveOperationResult(ctx context.Context, record func(*Stat
 }
 
 func (a *Application) pullImage(ctx context.Context, progress DeployProgressCallback) (bool, error) {
-	opts := image.PullOptions{RegistryAuth: registryAuthFor(a.Settings.Image)}
+	opts := image.PullOptions{RegistryAuth: registryAuthFor(a.Settings.Image, a.Settings.Registry)}
 	reader, err := a.namespace.client.ImagePull(ctx, a.Settings.Image, opts)
 	if err != nil {
 		return false, a.pullError(err)

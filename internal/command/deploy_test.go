@@ -1,8 +1,10 @@
 package command
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -60,20 +62,47 @@ func TestParseEnvVars(t *testing.T) {
 
 func TestBuildSettingsImageRequired(t *testing.T) {
 	f := &settingsFlags{}
-	_, err := f.buildSettings("", "app.example.com")
+	_, err := f.buildSettings(&cobra.Command{}, "", "app.example.com")
 	assert.ErrorIs(t, err, docker.ErrImageRequired)
+}
+
+func TestBuildSettingsRegistryCredentials(t *testing.T) {
+	f := &settingsFlags{registryUsername: "user", registryPassword: "pass"}
+	s, err := f.buildSettings(&cobra.Command{}, "image:latest", "app.example.com")
+	require.NoError(t, err)
+	assert.Equal(t, docker.RegistrySettings{Username: "user", Password: "pass"}, s.Registry)
+}
+
+func TestBuildSettingsRegistryPasswordFromStdin(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.SetIn(strings.NewReader("stdin-pass\n"))
+
+	f := &settingsFlags{registryUsername: "user", registryPasswordStdin: true}
+	s, err := f.buildSettings(cmd, "image:latest", "app.example.com")
+	require.NoError(t, err)
+	assert.Equal(t, docker.RegistrySettings{Username: "user", Password: "stdin-pass"}, s.Registry)
+}
+
+func TestRegistryPasswordFlagsAreMutuallyExclusive(t *testing.T) {
+	cmd := &cobra.Command{}
+	f := &settingsFlags{}
+	f.register(cmd)
+	require.NoError(t, cmd.Flags().Set("registry-password", "pass"))
+	require.NoError(t, cmd.Flags().Set("registry-password-stdin", "true"))
+
+	assert.Error(t, cmd.ValidateFlagGroups())
 }
 
 func TestBuildSettingsAutoBackupRequiresPath(t *testing.T) {
 	t.Run("auto-backup without path", func(t *testing.T) {
 		f := &settingsFlags{autoBackup: true}
-		_, err := f.buildSettings("image:latest", "app.example.com")
+		_, err := f.buildSettings(&cobra.Command{}, "image:latest", "app.example.com")
 		assert.ErrorIs(t, err, docker.ErrAutoBackupWithoutPath)
 	})
 
 	t.Run("auto-backup with path", func(t *testing.T) {
 		f := &settingsFlags{autoBackup: true, backupPath: "/backups"}
-		_, err := f.buildSettings("image:latest", "app.example.com")
+		_, err := f.buildSettings(&cobra.Command{}, "image:latest", "app.example.com")
 		require.NoError(t, err)
 	})
 }

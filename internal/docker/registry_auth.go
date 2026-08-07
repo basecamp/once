@@ -10,8 +10,17 @@ import (
 
 // registryAuthFor returns a base64-encoded JSON auth string for the registry
 // that hosts the given image, suitable for use in image.PullOptions.RegistryAuth.
-// Returns "" on any error or missing credentials, falling back to anonymous access.
-func registryAuthFor(imageName string) string {
+// Credentials in the given RegistrySettings take precedence over the Docker
+// credential store. Returns "" on any error or missing credentials, falling
+// back to anonymous access.
+func registryAuthFor(imageName string, registry RegistrySettings) string {
+	if !registry.Empty() {
+		return encodeAuthConfig(&authn.AuthConfig{
+			Username: registry.Username,
+			Password: registry.Password,
+		})
+	}
+
 	ref, err := name.ParseReference(imageName)
 	if err != nil {
 		return ""
@@ -24,11 +33,7 @@ func registryAuthFor(imageName string) string {
 	if err != nil {
 		return ""
 	}
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		return ""
-	}
-	return base64.URLEncoding.EncodeToString(data)
+	return encodeAuthConfig(cfg)
 }
 
 // registryHostFor returns the registry hostname for the given image, in the
@@ -43,4 +48,12 @@ func registryHostFor(imageName string) string {
 		return "docker.io"
 	}
 	return registry
+}
+
+func encodeAuthConfig(cfg *authn.AuthConfig) string {
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return ""
+	}
+	return base64.URLEncoding.EncodeToString(data)
 }

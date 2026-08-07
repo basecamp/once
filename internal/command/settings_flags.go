@@ -2,6 +2,7 @@ package command
 
 import (
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 
@@ -11,25 +12,32 @@ import (
 )
 
 type settingsFlags struct {
-	host         string
-	disableTLS   bool
-	env          []string
-	smtpServer   string
-	smtpPort     string
-	smtpUsername string
-	smtpPassword string
-	smtpFrom     string
-	cpus         int
-	memory       int
-	autoUpdate   bool
-	backupPath   string
-	autoBackup   bool
+	host                  string
+	disableTLS            bool
+	env                   []string
+	registryUsername      string
+	registryPassword      string
+	registryPasswordStdin bool
+	smtpServer            string
+	smtpPort              string
+	smtpUsername          string
+	smtpPassword          string
+	smtpFrom              string
+	cpus                  int
+	memory                int
+	autoUpdate            bool
+	backupPath            string
+	autoBackup            bool
 }
 
 func (f *settingsFlags) register(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.host, "host", "", "hostname for the application")
 	cmd.Flags().BoolVar(&f.disableTLS, "disable-tls", false, "disable TLS for this application")
 	cmd.Flags().StringArrayVar(&f.env, "env", nil, "environment variable in KEY=VALUE format (can be repeated)")
+	cmd.Flags().StringVar(&f.registryUsername, "registry-username", "", "username for the image's registry")
+	cmd.Flags().StringVar(&f.registryPassword, "registry-password", "", "password for the image's registry")
+	cmd.Flags().BoolVar(&f.registryPasswordStdin, "registry-password-stdin", false, "read the registry password from stdin")
+	cmd.MarkFlagsMutuallyExclusive("registry-password", "registry-password-stdin")
 	cmd.Flags().StringVar(&f.smtpServer, "smtp-server", "", "SMTP server address")
 	cmd.Flags().StringVar(&f.smtpPort, "smtp-port", "", "SMTP server port")
 	cmd.Flags().StringVar(&f.smtpUsername, "smtp-username", "", "SMTP username")
@@ -42,7 +50,11 @@ func (f *settingsFlags) register(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&f.autoBackup, "auto-backup", false, "enable automatic backups")
 }
 
-func (f *settingsFlags) buildSettings(image, host string) (docker.ApplicationSettings, error) {
+func (f *settingsFlags) buildSettings(cmd *cobra.Command, image, host string) (docker.ApplicationSettings, error) {
+	if err := f.resolveRegistryPassword(cmd); err != nil {
+		return docker.ApplicationSettings{}, err
+	}
+
 	envVars, err := f.parseEnvVars()
 	if err != nil {
 		return docker.ApplicationSettings{}, err
@@ -53,7 +65,11 @@ func (f *settingsFlags) buildSettings(image, host string) (docker.ApplicationSet
 	}
 
 	s := docker.ApplicationSettings{
-		Image:      image,
+		Image: image,
+		Registry: docker.RegistrySettings{
+			Username: f.registryUsername,
+			Password: f.registryPassword,
+		},
 		Host:       host,
 		DisableTLS: f.disableTLS,
 		EnvVars:    envVars,
@@ -83,6 +99,10 @@ func (f *settingsFlags) buildSettings(image, host string) (docker.ApplicationSet
 }
 
 func (f *settingsFlags) applyChanges(cmd *cobra.Command, existing docker.ApplicationSettings, image string) (docker.ApplicationSettings, error) {
+	if err := f.resolveRegistryPassword(cmd); err != nil {
+		return existing, err
+	}
+
 	s := existing
 
 	s.Image = image
@@ -99,6 +119,12 @@ func (f *settingsFlags) applyChanges(cmd *cobra.Command, existing docker.Applica
 			return s, err
 		}
 		s.EnvVars = envVars
+	}
+	if cmd.Flags().Changed("registry-username") {
+		s.Registry.Username = f.registryUsername
+	}
+	if cmd.Flags().Changed("registry-password") || f.registryPasswordStdin {
+		s.Registry.Password = f.registryPassword
 	}
 	if cmd.Flags().Changed("smtp-server") {
 		s.SMTP.Server = f.smtpServer
@@ -139,6 +165,21 @@ func (f *settingsFlags) applyChanges(cmd *cobra.Command, existing docker.Applica
 	}
 
 	return s, nil
+}
+
+// resolveRegistryPassword reads the registry password from stdin when the
+// --registry-password-stdin flag is set.
+func (f *settingsFlags) resolveRegistryPassword(cmd *cobra.Command) error {
+	if !f.registryPasswordStdin {
+		return nil
+	}
+
+	data, err := io.ReadAll(cmd.InOrStdin())
+	if err != nil {
+		return fmt.Errorf("reading registry password from stdin: %w", err)
+	}
+	f.registryPassword = strings.TrimRight(string(data), "\r\n")
+	return nil
 }
 
 func (f *settingsFlags) parseEnvVars() (map[string]string, error) {

@@ -75,6 +75,15 @@ func (s SMTPSettings) BuildEnv() []string {
 	}
 }
 
+type RegistrySettings struct {
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
+func (r RegistrySettings) Empty() bool {
+	return r == RegistrySettings{}
+}
+
 type ContainerResources struct {
 	CPUs     int `json:"cpus,omitempty"`
 	MemoryMB int `json:"memoryMB,omitempty"`
@@ -88,6 +97,7 @@ type BackupSettings struct {
 type ApplicationSettings struct {
 	Name       string             `json:"name"`
 	Image      string             `json:"image"`
+	Registry   RegistrySettings   `json:"registry"`
 	Host       string             `json:"host"`
 	DisableTLS bool               `json:"disableTLS"`
 	EnvVars    map[string]string  `json:"env"`
@@ -131,6 +141,9 @@ func (s ApplicationSettings) Equal(other ApplicationSettings) bool {
 		return false
 	}
 	if s.SMTP != other.SMTP {
+		return false
+	}
+	if s.Registry != other.Registry {
 		return false
 	}
 	if s.AutoUpdate != other.AutoUpdate {

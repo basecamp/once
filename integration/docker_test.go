@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -283,6 +284,37 @@ func TestDeployDetectsMissingRegistryCredentials(t *testing.T) {
 	assert.Equal(t, registryURL, authErr.Registry)
 	assert.ErrorIs(t, err, docker.ErrPullFailed)
 	assert.Equal(t, "Log in to "+registryURL+" first. This image can't be downloaded without registry credentials.", docker.ErrorMessage(err))
+}
+
+func TestDeployWithRegistryCredentials(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	registryURL := startLocalAuthRegistry(t, ctx)
+	imageTag := registryURL + "/private-deploy-test:latest"
+	auth := remote.WithAuth(&authn.Basic{Username: "testuser", Password: "testpass"})
+	buildAndPushImage(t, ctx, imageTag, "v1", auth)
+
+	// The Docker credential store holds wrong credentials for this registry,
+	// to prove that the credentials in the app settings take precedence.
+	configDir := t.TempDir()
+	t.Setenv("DOCKER_CONFIG", configDir)
+	wrongAuth := base64.StdEncoding.EncodeToString([]byte("wronguser:wrongpass"))
+	config := fmt.Sprintf(`{"auths":{%q:{"auth":%q}}}`, registryURL, wrongAuth)
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.json"), []byte(config), 0600))
+
+	ns := newTestNamespace(t, "once-auth-deploy-test")
+	require.NoError(t, ns.EnsureNetwork(ctx))
+	require.NoError(t, ns.Proxy().Boot(ctx, getProxyPorts(t)))
+
+	settings := docker.ApplicationSettings{
+		Name:     "authapp",
+		Image:    imageTag,
+		Host:     "authapp.localhost",
+		Registry: docker.RegistrySettings{Username: "testuser", Password: "testpass"},
+	}
+	app := deployApp(t, ctx, ns, settings)
+	assert.Equal(t, settings.Registry, app.Settings.Registry, "registry credentials should persist in the app label")
 }
 
 func TestLargeLabelData(t *testing.T) {

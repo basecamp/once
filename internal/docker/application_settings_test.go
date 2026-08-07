@@ -224,6 +224,29 @@ func TestBackupSettingsEqualDiffers(t *testing.T) {
 	assert.False(t, base.Equal(noBackup))
 }
 
+func TestRegistrySettingsEqualDiffers(t *testing.T) {
+	base := ApplicationSettings{Name: "app", Registry: RegistrySettings{Username: "user", Password: "pass"}}
+
+	different := ApplicationSettings{Name: "app", Registry: RegistrySettings{Username: "user", Password: "changed"}}
+	assert.False(t, base.Equal(different))
+
+	same := ApplicationSettings{Name: "app", Registry: RegistrySettings{Username: "user", Password: "pass"}}
+	assert.True(t, base.Equal(same))
+}
+
+func TestRegistrySettingsMarshalRoundTrip(t *testing.T) {
+	original := ApplicationSettings{
+		Name:     "app",
+		Image:    "img:latest",
+		Registry: RegistrySettings{Username: "user", Password: "pass"},
+	}
+	restored, err := UnmarshalApplicationSettings(original.Marshal())
+	require.NoError(t, err)
+	assert.Equal(t, "user", restored.Registry.Username)
+	assert.Equal(t, "pass", restored.Registry.Password)
+	assert.True(t, original.Equal(restored))
+}
+
 func TestKeysEqualDiffers(t *testing.T) {
 	base := ApplicationSettings{Name: "app", Keys: Keys{SecretKeyBase: "secret"}}
 

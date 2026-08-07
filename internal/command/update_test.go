@@ -1,6 +1,7 @@
 package command
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -76,6 +77,27 @@ func TestApplyChanges(t *testing.T) {
 		assert.Equal(t, existing.SMTP, result.SMTP)
 		assert.Equal(t, existing.EnvVars, result.EnvVars)
 		assert.Equal(t, existing.Resources.MemoryMB, result.Resources.MemoryMB)
+	})
+
+	t.Run("registry credentials changed", func(t *testing.T) {
+		cmd, f := newCmd()
+		require.NoError(t, cmd.Flags().Set("registry-username", "reguser"))
+		require.NoError(t, cmd.Flags().Set("registry-password", "regpass"))
+
+		result, err := f.applyChanges(cmd, existing, existing.Image)
+		require.NoError(t, err)
+		assert.Equal(t, docker.RegistrySettings{Username: "reguser", Password: "regpass"}, result.Registry)
+		assert.Equal(t, existing.SMTP, result.SMTP)
+	})
+
+	t.Run("registry password from stdin", func(t *testing.T) {
+		cmd, f := newCmd()
+		cmd.SetIn(strings.NewReader("stdin-pass\n"))
+		require.NoError(t, cmd.Flags().Set("registry-password-stdin", "true"))
+
+		result, err := f.applyChanges(cmd, existing, existing.Image)
+		require.NoError(t, err)
+		assert.Equal(t, "stdin-pass", result.Registry.Password)
 	})
 
 	t.Run("env replaces all vars", func(t *testing.T) {

@@ -47,7 +47,7 @@ func (d *deployCommand) run(ctx context.Context, ns *docker.Namespace, cmd *cobr
 		return docker.ErrHostnameInUse
 	}
 
-	settings, err := d.flags.buildSettings(imageRef, host)
+	settings, err := d.flags.buildSettings(cmd, imageRef, host)
 	if err != nil {
 		return err
 	}
