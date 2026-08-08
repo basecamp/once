@@ -84,11 +84,15 @@ func isRegistryAuthError(err error) bool {
 		"pull access denied",
 		"no basic auth credentials",
 		"insufficient_scope",
-		"failed to authorize",
 	} {
 		if strings.Contains(msg, indicator) {
 			return true
 		}
+	}
+	// "failed to authorize" also wraps transport failures during token
+	// fetch, so it only counts when paired with a credential-style status.
+	if strings.Contains(msg, "failed to authorize") {
+		return strings.Contains(msg, "401") || strings.Contains(msg, "403") || strings.Contains(msg, "denied")
 	}
 	return false
 }

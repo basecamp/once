@@ -40,6 +40,7 @@ func TestIsRegistryAuthError(t *testing.T) {
 		`Error response from daemon: Get "https://registry.example.com/v2/": no basic auth credentials`,
 		"pull access denied, repository does not exist or may require authorization: server message: insufficient_scope: authorization failed",
 		`failed to resolve reference "ghcr.io/acme/app:latest": failed to authorize: failed to fetch anonymous token: unexpected status: 401 Unauthorized`,
+		`failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token: 403 Forbidden`,
 	}
 	for _, msg := range authErrors {
 		assert.True(t, isRegistryAuthError(errors.New(msg)), msg)
@@ -51,6 +52,8 @@ func TestIsRegistryAuthError(t *testing.T) {
 		`Get "https://registry.example.com/v2/": dial tcp: lookup registry.example.com: no such host`,
 		"context deadline exceeded",
 		"open /var/lib/docker/tmp/foo: permission denied",
+		`failed to authorize: failed to fetch anonymous token: Get "https://auth.example.com/token": dial tcp: connection refused`,
+		`failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://auth.example.com/token: 500 Internal Server Error`,
 	}
 	for _, msg := range otherErrors {
 		assert.False(t, isRegistryAuthError(errors.New(msg)), msg)
