@@ -191,7 +191,7 @@ func (m Install) Update(msg tea.Msg) (Component, tea.Cmd) {
 		m.hostnameForm.SetHostname(m.hostname)
 		m.customImage = true
 		m.imageRef = msg.ImageRef
-		m.registry = docker.RegistrySettings{Username: msg.Username, Password: msg.Password}
+		m.registry = docker.NewRegistrySettings(msg.ImageRef, msg.Username, msg.Password)
 		m.state = installStateHostname
 		return m, m.initScreenWithSize()
 

@@ -76,12 +76,30 @@ func (s SMTPSettings) BuildEnv() []string {
 }
 
 type RegistrySettings struct {
+	Host     string `json:"host,omitempty"`
 	Username string `json:"username,omitempty"`
 	Password string `json:"password,omitempty"`
 }
 
+// NewRegistrySettings builds credentials scoped to the registry that hosts
+// the given image. Empty credentials produce the zero value.
+func NewRegistrySettings(image, username, password string) RegistrySettings {
+	if username == "" && password == "" {
+		return RegistrySettings{}
+	}
+	return RegistrySettings{
+		Host:     RegistryHostFor(image),
+		Username: username,
+		Password: password,
+	}
+}
+
 func (r RegistrySettings) Empty() bool {
-	return r == RegistrySettings{}
+	return r.Username == "" && r.Password == ""
+}
+
+func (r RegistrySettings) AppliesTo(image string) bool {
+	return r.Host == RegistryHostFor(image)
 }
 
 type ContainerResources struct {

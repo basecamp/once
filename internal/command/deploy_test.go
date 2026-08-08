@@ -70,7 +70,7 @@ func TestBuildSettingsRegistryCredentials(t *testing.T) {
 	f := &settingsFlags{registryUsername: "user", registryPassword: "pass"}
 	s, err := f.buildSettings(&cobra.Command{}, "image:latest", "app.example.com")
 	require.NoError(t, err)
-	assert.Equal(t, docker.RegistrySettings{Username: "user", Password: "pass"}, s.Registry)
+	assert.Equal(t, docker.RegistrySettings{Host: "docker.io", Username: "user", Password: "pass"}, s.Registry)
 }
 
 func TestBuildSettingsRegistryPasswordFromStdin(t *testing.T) {
@@ -80,7 +80,7 @@ func TestBuildSettingsRegistryPasswordFromStdin(t *testing.T) {
 	f := &settingsFlags{registryUsername: "user", registryPasswordStdin: true}
 	s, err := f.buildSettings(cmd, "image:latest", "app.example.com")
 	require.NoError(t, err)
-	assert.Equal(t, docker.RegistrySettings{Username: "user", Password: "stdin-pass"}, s.Registry)
+	assert.Equal(t, docker.RegistrySettings{Host: "docker.io", Username: "user", Password: "stdin-pass"}, s.Registry)
 }
 
 func TestRegistryPasswordFlagsAreMutuallyExclusive(t *testing.T) {

@@ -281,7 +281,7 @@ func TestInstall_AuthFailureRetryCarriesCredentials(t *testing.T) {
 
 	m, _ = updateInstall(m, InstallFormSubmitMsg{ImageRef: "ghcr.io/acme/private", Hostname: "app.example.com"})
 	assert.Equal(t, installStateActivity, m.state)
-	assert.Equal(t, docker.RegistrySettings{Username: "myuser", Password: "mypass"}, m.activity.registry)
+	assert.Equal(t, docker.RegistrySettings{Host: "ghcr.io", Username: "myuser", Password: "mypass"}, m.activity.registry)
 }
 
 func TestInstall_SecondAuthFailurePrefillsUsername(t *testing.T) {

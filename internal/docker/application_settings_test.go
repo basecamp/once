@@ -238,13 +238,36 @@ func TestRegistrySettingsMarshalRoundTrip(t *testing.T) {
 	original := ApplicationSettings{
 		Name:     "app",
 		Image:    "img:latest",
-		Registry: RegistrySettings{Username: "user", Password: "pass"},
+		Registry: NewRegistrySettings("img:latest", "user", "pass"),
 	}
 	restored, err := UnmarshalApplicationSettings(original.Marshal())
 	require.NoError(t, err)
+	assert.Equal(t, "docker.io", restored.Registry.Host)
 	assert.Equal(t, "user", restored.Registry.Username)
 	assert.Equal(t, "pass", restored.Registry.Password)
 	assert.True(t, original.Equal(restored))
+}
+
+func TestNewRegistrySettings(t *testing.T) {
+	scoped := NewRegistrySettings("ghcr.io/acme/app:latest", "user", "pass")
+	assert.Equal(t, RegistrySettings{Host: "ghcr.io", Username: "user", Password: "pass"}, scoped)
+
+	assert.Equal(t, RegistrySettings{}, NewRegistrySettings("ghcr.io/acme/app:latest", "", ""))
+}
+
+func TestRegistrySettingsEmpty(t *testing.T) {
+	assert.True(t, RegistrySettings{}.Empty())
+	assert.True(t, RegistrySettings{Host: "ghcr.io"}.Empty())
+	assert.False(t, RegistrySettings{Username: "user", Password: "pass"}.Empty())
+}
+
+func TestRegistrySettingsAppliesTo(t *testing.T) {
+	registry := NewRegistrySettings("ghcr.io/acme/app:latest", "user", "pass")
+
+	assert.True(t, registry.AppliesTo("ghcr.io/acme/app:v2"))
+	assert.True(t, registry.AppliesTo("ghcr.io/acme/other"))
+	assert.False(t, registry.AppliesTo("acme/app:latest"))
+	assert.False(t, registry.AppliesTo("registry.example.com/acme/app"))
 }
 
 func TestKeysEqualDiffers(t *testing.T) {

@@ -311,7 +311,7 @@ func TestDeployWithRegistryCredentials(t *testing.T) {
 		Name:     "authapp",
 		Image:    imageTag,
 		Host:     "authapp.localhost",
-		Registry: docker.RegistrySettings{Username: "testuser", Password: "testpass"},
+		Registry: docker.NewRegistrySettings(imageTag, "testuser", "testpass"),
 	}
 	app := deployApp(t, ctx, ns, settings)
 	assert.Equal(t, settings.Registry, app.Settings.Registry, "registry credentials should persist in the app label")

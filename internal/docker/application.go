@@ -309,7 +309,7 @@ func (a *Application) pullImage(ctx context.Context, progress DeployProgressCall
 
 func (a *Application) pullError(err error) error {
 	if isRegistryAuthError(err) {
-		return &RegistryAuthError{Registry: registryHostFor(a.Settings.Image), Cause: err}
+		return &RegistryAuthError{Registry: RegistryHostFor(a.Settings.Image), Cause: err}
 	}
 	return fmt.Errorf("%w: %w", ErrPullFailed, err)
 }

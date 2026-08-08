@@ -65,11 +65,8 @@ func (f *settingsFlags) buildSettings(cmd *cobra.Command, image, host string) (d
 	}
 
 	s := docker.ApplicationSettings{
-		Image: image,
-		Registry: docker.RegistrySettings{
-			Username: f.registryUsername,
-			Password: f.registryPassword,
-		},
+		Image:      image,
+		Registry:   docker.NewRegistrySettings(image, f.registryUsername, f.registryPassword),
 		Host:       host,
 		DisableTLS: f.disableTLS,
 		EnvVars:    envVars,
@@ -125,6 +122,9 @@ func (f *settingsFlags) applyChanges(cmd *cobra.Command, existing docker.Applica
 	}
 	if cmd.Flags().Changed("registry-password") || f.registryPasswordStdin {
 		s.Registry.Password = f.registryPassword
+	}
+	if cmd.Flags().Changed("registry-username") || cmd.Flags().Changed("registry-password") || f.registryPasswordStdin {
+		s.Registry = docker.NewRegistrySettings(s.Image, s.Registry.Username, s.Registry.Password)
 	}
 	if cmd.Flags().Changed("smtp-server") {
 		s.SMTP.Server = f.smtpServer

@@ -13,11 +13,11 @@ import (
 )
 
 func TestRegistryHostFor(t *testing.T) {
-	assert.Equal(t, "docker.io", registryHostFor("nginx"))
-	assert.Equal(t, "docker.io", registryHostFor("acme/private:latest"))
-	assert.Equal(t, "ghcr.io", registryHostFor("ghcr.io/basecamp/once-campfire:latest"))
-	assert.Equal(t, "localhost:5000", registryHostFor("localhost:5000/foo"))
-	assert.Equal(t, "the registry", registryHostFor(":::bad"))
+	assert.Equal(t, "docker.io", RegistryHostFor("nginx"))
+	assert.Equal(t, "docker.io", RegistryHostFor("acme/private:latest"))
+	assert.Equal(t, "ghcr.io", RegistryHostFor("ghcr.io/basecamp/once-campfire:latest"))
+	assert.Equal(t, "localhost:5000", RegistryHostFor("localhost:5000/foo"))
+	assert.Equal(t, "the registry", RegistryHostFor(":::bad"))
 }
 
 func TestRegistryAuthFor(t *testing.T) {
@@ -128,7 +128,7 @@ echo '{"ServerURL":"","Username":"store-user","Secret":"store-pass"}'
 	t.Run("settings credentials need no docker config", func(t *testing.T) {
 		isolateDockerConfig(t)
 
-		token := registryAuthFor("ghcr.io/basecamp/once:main", RegistrySettings{Username: "settings-user", Password: "settings-pass"})
+		token := registryAuthFor("ghcr.io/basecamp/once:main", RegistrySettings{Host: "ghcr.io", Username: "settings-user", Password: "settings-pass"})
 		require.NotEmpty(t, token)
 		ac := decodeAuthToken(t, token)
 		assert.Equal(t, "settings-user", ac.Username)
@@ -140,11 +140,30 @@ echo '{"ServerURL":"","Username":"store-user","Secret":"store-pass"}'
 		encoded := base64.StdEncoding.EncodeToString([]byte("config-user:config-pass"))
 		writeDockerConfig(t, dir, map[string]string{"ghcr.io": encoded}, nil, "")
 
-		token := registryAuthFor("ghcr.io/basecamp/once:main", RegistrySettings{Username: "settings-user", Password: "settings-pass"})
+		token := registryAuthFor("ghcr.io/basecamp/once:main", RegistrySettings{Host: "ghcr.io", Username: "settings-user", Password: "settings-pass"})
 		require.NotEmpty(t, token)
 		ac := decodeAuthToken(t, token)
 		assert.Equal(t, "settings-user", ac.Username)
 		assert.Equal(t, "settings-pass", ac.Password)
+	})
+
+	t.Run("settings credentials for another host are not sent", func(t *testing.T) {
+		isolateDockerConfig(t)
+
+		token := registryAuthFor("ghcr.io/basecamp/once:main", RegistrySettings{Host: "docker.io", Username: "settings-user", Password: "settings-pass"})
+		assert.Equal(t, "", token)
+	})
+
+	t.Run("settings credentials for another host fall back to docker config", func(t *testing.T) {
+		dir := isolateDockerConfig(t)
+		encoded := base64.StdEncoding.EncodeToString([]byte("config-user:config-pass"))
+		writeDockerConfig(t, dir, map[string]string{"ghcr.io": encoded}, nil, "")
+
+		token := registryAuthFor("ghcr.io/basecamp/once:main", RegistrySettings{Host: "docker.io", Username: "settings-user", Password: "settings-pass"})
+		require.NotEmpty(t, token)
+		ac := decodeAuthToken(t, token)
+		assert.Equal(t, "config-user", ac.Username)
+		assert.Equal(t, "config-pass", ac.Password)
 	})
 }
 
