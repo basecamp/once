@@ -111,6 +111,28 @@ func TestApplyChanges(t *testing.T) {
 		assert.False(t, result.Registry.AppliesTo(result.Image))
 	})
 
+	t.Run("image change does not re-scope existing credentials", func(t *testing.T) {
+		cmd, f := newCmd()
+		withCreds := existing
+		withCreds.Registry = docker.NewRegistrySettings(existing.Image, "reguser", "regpass")
+		require.NoError(t, cmd.Flags().Set("registry-username", "reguser"))
+
+		result, err := f.applyChanges(cmd, withCreds, "ghcr.io/acme/app:latest")
+		require.NoError(t, err)
+		assert.Equal(t, docker.RegistrySettings{Host: "ghcr.io", Username: "reguser"}, result.Registry)
+	})
+
+	t.Run("username change keeps the password for the same registry", func(t *testing.T) {
+		cmd, f := newCmd()
+		withCreds := existing
+		withCreds.Registry = docker.NewRegistrySettings(existing.Image, "reguser", "regpass")
+		require.NoError(t, cmd.Flags().Set("registry-username", "newuser"))
+
+		result, err := f.applyChanges(cmd, withCreds, withCreds.Image)
+		require.NoError(t, err)
+		assert.Equal(t, docker.RegistrySettings{Host: "docker.io", Username: "newuser", Password: "regpass"}, result.Registry)
+	})
+
 	t.Run("cleared registry credentials drop the host", func(t *testing.T) {
 		cmd, f := newCmd()
 		withCreds := existing

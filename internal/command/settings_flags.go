@@ -117,14 +117,20 @@ func (f *settingsFlags) applyChanges(cmd *cobra.Command, existing docker.Applica
 		}
 		s.EnvVars = envVars
 	}
-	if cmd.Flags().Changed("registry-username") {
-		s.Registry.Username = f.registryUsername
-	}
-	if cmd.Flags().Changed("registry-password") || f.registryPasswordStdin {
-		s.Registry.Password = f.registryPassword
-	}
-	if cmd.Flags().Changed("registry-username") || cmd.Flags().Changed("registry-password") || f.registryPasswordStdin {
-		s.Registry = docker.NewRegistrySettings(s.Image, s.Registry.Username, s.Registry.Password)
+	usernameChanged := cmd.Flags().Changed("registry-username")
+	passwordChanged := cmd.Flags().Changed("registry-password") || f.registryPasswordStdin
+	if usernameChanged || passwordChanged {
+		var username, password string
+		if s.Registry.AppliesTo(s.Image) {
+			username, password = s.Registry.Username, s.Registry.Password
+		}
+		if usernameChanged {
+			username = f.registryUsername
+		}
+		if passwordChanged {
+			password = f.registryPassword
+		}
+		s.Registry = docker.NewRegistrySettings(s.Image, username, password)
 	}
 	if cmd.Flags().Changed("smtp-server") {
 		s.SMTP.Server = f.smtpServer
