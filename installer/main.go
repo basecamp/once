@@ -21,6 +21,10 @@ type InstallScriptArgs struct {
 	ImageRef string
 }
 
+var installImageAliases = map[string]string{
+	"screenote": "ghcr.io/ivankuznetsov/screenote",
+}
+
 func withLogging(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -76,7 +80,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 
 func newInstallScriptHandler(template *template.Template) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		imageRef := r.PathValue("image")
+		imageRef := expandInstallImageAlias(r.PathValue("image"))
 		if imageRef != "" {
 			if _, err := reference.ParseNormalizedNamed(imageRef); err != nil {
 				http.Error(w, "invalid image reference", http.StatusBadRequest)
@@ -93,6 +97,14 @@ func newInstallScriptHandler(template *template.Template) http.HandlerFunc {
 			slog.Error("Failed to execute template", "error", err)
 		}
 	}
+}
+
+func expandInstallImageAlias(imageRef string) string {
+	if expanded, ok := installImageAliases[imageRef]; ok {
+		return expanded
+	}
+
+	return imageRef
 }
 
 func main() {

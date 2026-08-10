@@ -54,6 +54,16 @@ func TestInstallScriptHandler_EmptyImageRef(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestInstallScriptHandler_ExpandsScreenoteForOlderClients(t *testing.T) {
+	handler := testHandler()
+
+	w := serve(handler, "screenote")
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "IMAGE_REF='ghcr.io/ivankuznetsov/screenote'")
+	assert.NotContains(t, w.Body.String(), "IMAGE_REF='screenote'")
+}
+
 // Helpers
 
 func testHandler() http.HandlerFunc {
