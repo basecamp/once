@@ -2,6 +2,7 @@ package docker
 
 import (
 	"encoding/base64"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -159,6 +160,25 @@ func TestBuildEnvWithCPULimit(t *testing.T) {
 	env := settings.BuildEnv()
 
 	assert.Contains(t, env, "NUM_CPUS=4")
+}
+
+func TestBuildEnvWithApplicationHost(t *testing.T) {
+	settings := ApplicationSettings{
+		Host:    "screenote.example.com",
+		EnvVars: map[string]string{"ONCE_HOST": "spoofed.example.com"},
+	}
+
+	env := settings.BuildEnv()
+
+	assert.Contains(t, env, "ONCE_HOST=screenote.example.com")
+	assert.NotContains(t, env, "ONCE_HOST=spoofed.example.com")
+	count := 0
+	for _, value := range env {
+		if strings.HasPrefix(value, "ONCE_HOST=") {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count)
 }
 
 func TestBuildEnvWithoutCPULimit(t *testing.T) {

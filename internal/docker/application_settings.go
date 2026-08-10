@@ -159,6 +159,9 @@ func (s ApplicationSettings) BuildEnv() []string {
 		"VAPID_PUBLIC_KEY=" + s.Keys.VAPIDPublicKey,
 		"VAPID_PRIVATE_KEY=" + s.Keys.VAPIDPrivateKey,
 	}
+	if s.Host != "" {
+		env = append(env, "ONCE_HOST="+s.Host)
+	}
 
 	if !s.TLSEnabled() {
 		env = append(env, "DISABLE_SSL=true")
@@ -171,6 +174,9 @@ func (s ApplicationSettings) BuildEnv() []string {
 	env = append(env, s.SMTP.BuildEnv()...)
 
 	for k, v := range s.EnvVars {
+		if k == "ONCE_HOST" {
+			continue
+		}
 		env = append(env, k+"="+v)
 	}
 

@@ -131,6 +131,8 @@ These include:
 By convention, Rails applications use this as the base for cryptographic signing.
 - `DISABLE_SSL` -- This will be set to `true` if the app is running without SSL.
 This can be useful for applications that generate redirects or URLs that would otherwise assume SSL is being used.
+- `ONCE_HOST` -- The hostname selected for the application.
+This lets applications generate canonical URLs without asking for the hostname a second time.
 - `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` -- For applications the use WebPush, unique VAPID credentials are automatically generated and passed in these variables.
 - `SMTP_ADDRESS`/`SMTP_PORT`/`SMTP_USERNAME`/`SMTP_PASSWORD`/`MAILER_FROM_ADDRESS` -- The values from the Email Settings screen are passed in these.
 - `NUM_CPUS` -- If an application is restricted with a CPU quota, this variable will contain the number of CPUs it has been allowed to use.
