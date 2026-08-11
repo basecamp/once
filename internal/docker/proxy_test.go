@@ -30,10 +30,26 @@ func TestDeployArgs(t *testing.T) {
 	})
 
 	t.Run("with host", func(t *testing.T) {
-		args := proxy.deployArgs(DeployOptions{AppName: "chat", Target: "localhost:3000", Host: "chat.example.com"})
+		args := proxy.deployArgs(DeployOptions{AppName: "chat", Target: "localhost:3000", Hosts: []string{"chat.example.com"}})
 
 		assert.Contains(t, args, "--host")
 		assert.Contains(t, args, "chat.example.com")
+	})
+
+	t.Run("with multiple hosts", func(t *testing.T) {
+		args := proxy.deployArgs(DeployOptions{
+			AppName: "chat",
+			Target:  "localhost:3000",
+			Hosts:   []string{"chat.example.com", "www.chat.example.com"},
+		})
+
+		assert.Equal(t, []string{
+			"kamal-proxy", "deploy", "chat",
+			"--target", "localhost:3000",
+			"--deploy-timeout", "120s",
+			"--host", "chat.example.com",
+			"--host", "www.chat.example.com",
+		}, args)
 	})
 
 	t.Run("with TLS", func(t *testing.T) {
@@ -46,7 +62,7 @@ func TestDeployArgs(t *testing.T) {
 		args := proxy.deployArgs(DeployOptions{
 			AppName: "chat",
 			Target:  "localhost:3000",
-			Host:    "chat.example.com",
+			Hosts:   []string{"chat.example.com"},
 			TLS:     true,
 		})
 

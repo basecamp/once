@@ -11,7 +11,7 @@ import (
 )
 
 type settingsFlags struct {
-	host         string
+	host         []string
 	disableTLS   bool
 	env          []string
 	smtpServer   string
@@ -27,7 +27,7 @@ type settingsFlags struct {
 }
 
 func (f *settingsFlags) register(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&f.host, "host", "", "hostname for the application")
+	cmd.Flags().StringArrayVar(&f.host, "host", nil, "hostname for the application (can be repeated to serve additional hostnames)")
 	cmd.Flags().BoolVar(&f.disableTLS, "disable-tls", false, "disable TLS for this application")
 	cmd.Flags().StringArrayVar(&f.env, "env", nil, "environment variable in KEY=VALUE format (can be repeated)")
 	cmd.Flags().StringVar(&f.smtpServer, "smtp-server", "", "SMTP server address")
@@ -88,7 +88,7 @@ func (f *settingsFlags) applyChanges(cmd *cobra.Command, existing docker.Applica
 	s.Image = image
 
 	if cmd.Flags().Changed("host") {
-		s.Host = f.host
+		s.Host = strings.Join(f.host, ",")
 	}
 	if cmd.Flags().Changed("disable-tls") {
 		s.DisableTLS = f.disableTLS

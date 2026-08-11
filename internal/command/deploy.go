@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -38,16 +39,18 @@ func (d *deployCommand) run(ctx context.Context, ns *docker.Namespace, cmd *cobr
 		return fmt.Errorf("%w: %w", docker.ErrSetupFailed, err)
 	}
 
-	host := d.flags.host
-	if host == "" {
-		host = docker.NameFromImageRef(imageRef) + ".localhost"
+	hosts := d.flags.host
+	if len(hosts) == 0 {
+		hosts = []string{docker.NameFromImageRef(imageRef) + ".localhost"}
 	}
 
-	if ns.HostInUse(host) {
-		return docker.ErrHostnameInUse
+	for _, host := range hosts {
+		if ns.HostInUse(host) {
+			return docker.ErrHostnameInUse
+		}
 	}
 
-	settings, err := d.flags.buildSettings(imageRef, host)
+	settings, err := d.flags.buildSettings(imageRef, strings.Join(hosts, ","))
 	if err != nil {
 		return err
 	}
@@ -61,7 +64,7 @@ func (d *deployCommand) run(ctx context.Context, ns *docker.Namespace, cmd *cobr
 
 	app := docker.NewApplication(ns, settings)
 
-	return runWithProgress("Deploying "+host, func(progress docker.DeployProgressCallback) error {
+	return runWithProgress("Deploying "+hosts[0], func(progress docker.DeployProgressCallback) error {
 		if err := app.Deploy(ctx, progress); err != nil {
 			if cleanupErr := app.Destroy(context.Background(), true); cleanupErr != nil {
 				slog.Error("Failed to clean up after deploy failure", "app", name, "error", cleanupErr)

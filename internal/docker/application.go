@@ -108,7 +108,7 @@ func (a *Application) URL() string {
 		defaultPort = 443
 	}
 
-	base := scheme + "://" + a.Settings.Host
+	base := scheme + "://" + a.Settings.PrimaryHost()
 
 	if a.namespace == nil {
 		return base
@@ -380,7 +380,7 @@ func (a *Application) deployWithVolume(ctx context.Context, vol *ApplicationVolu
 	if err := a.namespace.Proxy().Deploy(ctx, DeployOptions{
 		AppName: a.Settings.Name,
 		Target:  shortContainerID,
-		Host:    a.Settings.Host,
+		Hosts:   a.Settings.Hosts(),
 		TLS:     a.Settings.TLSEnabled(),
 	}); err != nil {
 		a.namespace.client.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})

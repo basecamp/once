@@ -109,6 +109,29 @@ func (s ApplicationSettings) Marshal() string {
 	return string(b)
 }
 
+// Host stores one or more hostnames as a comma-separated list, keeping the
+// serialized settings backward compatible with single-host installs.
+func (s ApplicationSettings) Hosts() []string {
+	if s.Host == "" {
+		return nil
+	}
+
+	var hosts []string
+	for _, h := range strings.Split(s.Host, ",") {
+		if h = strings.TrimSpace(h); h != "" {
+			hosts = append(hosts, h)
+		}
+	}
+	return hosts
+}
+
+func (s ApplicationSettings) PrimaryHost() string {
+	if hosts := s.Hosts(); len(hosts) > 0 {
+		return hosts[0]
+	}
+	return ""
+}
+
 func (s ApplicationSettings) Validate() error {
 	if s.Image == "" {
 		return ErrImageRequired
@@ -120,7 +143,7 @@ func (s ApplicationSettings) Validate() error {
 }
 
 func (s ApplicationSettings) TLSEnabled() bool {
-	return s.Host != "" && !s.DisableTLS && !IsLocalhost(s.Host)
+	return s.Host != "" && !s.DisableTLS && !IsLocalhost(s.PrimaryHost())
 }
 
 func (s ApplicationSettings) Equal(other ApplicationSettings) bool {

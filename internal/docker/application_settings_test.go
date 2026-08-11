@@ -338,3 +338,25 @@ func TestAutoUpdateAndBackupMarshalRoundTrip(t *testing.T) {
 	assert.True(t, restored.Backup.AutoBackup)
 	assert.True(t, original.Equal(restored))
 }
+
+func TestHosts(t *testing.T) {
+	assert.Nil(t, ApplicationSettings{}.Hosts())
+	assert.Equal(t, []string{"app.example.com"}, ApplicationSettings{Host: "app.example.com"}.Hosts())
+	assert.Equal(t,
+		[]string{"app.example.com", "www.app.example.com"},
+		ApplicationSettings{Host: "app.example.com,www.app.example.com"}.Hosts())
+	assert.Equal(t,
+		[]string{"app.example.com", "www.app.example.com"},
+		ApplicationSettings{Host: " app.example.com , www.app.example.com ,"}.Hosts())
+}
+
+func TestPrimaryHost(t *testing.T) {
+	assert.Equal(t, "", ApplicationSettings{}.PrimaryHost())
+	assert.Equal(t, "app.example.com", ApplicationSettings{Host: "app.example.com"}.PrimaryHost())
+	assert.Equal(t, "app.example.com", ApplicationSettings{Host: "app.example.com,www.app.example.com"}.PrimaryHost())
+}
+
+func TestTLSEnabledWithMultipleHosts(t *testing.T) {
+	assert.True(t, ApplicationSettings{Host: "app.example.com,www.app.example.com"}.TLSEnabled())
+	assert.False(t, ApplicationSettings{Host: "app.localhost,www.app.example.com"}.TLSEnabled())
+}
