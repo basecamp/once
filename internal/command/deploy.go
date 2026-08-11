@@ -44,15 +44,15 @@ func (d *deployCommand) run(ctx context.Context, ns *docker.Namespace, cmd *cobr
 		hosts = []string{docker.NameFromImageRef(imageRef) + ".localhost"}
 	}
 
-	for _, host := range hosts {
-		if ns.HostInUse(host) {
-			return docker.ErrHostnameInUse
-		}
-	}
-
 	settings, err := d.flags.buildSettings(imageRef, strings.Join(hosts, ","))
 	if err != nil {
 		return err
+	}
+
+	for _, host := range settings.Hosts() {
+		if ns.HostInUse(host) {
+			return docker.ErrHostnameInUse
+		}
 	}
 
 	baseName := docker.NameFromImageRef(imageRef)
@@ -64,7 +64,7 @@ func (d *deployCommand) run(ctx context.Context, ns *docker.Namespace, cmd *cobr
 
 	app := docker.NewApplication(ns, settings)
 
-	return runWithProgress("Deploying "+hosts[0], func(progress docker.DeployProgressCallback) error {
+	return runWithProgress("Deploying "+settings.PrimaryHost(), func(progress docker.DeployProgressCallback) error {
 		if err := app.Deploy(ctx, progress); err != nil {
 			if cleanupErr := app.Destroy(context.Background(), true); cleanupErr != nil {
 				slog.Error("Failed to clean up after deploy failure", "app", name, "error", cleanupErr)

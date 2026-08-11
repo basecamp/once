@@ -360,3 +360,22 @@ func TestTLSEnabledWithMultipleHosts(t *testing.T) {
 	assert.True(t, ApplicationSettings{Host: "app.example.com,www.app.example.com"}.TLSEnabled())
 	assert.False(t, ApplicationSettings{Host: "app.localhost,www.app.example.com"}.TLSEnabled())
 }
+
+func TestValidateRejectsMixedLocalhostHosts(t *testing.T) {
+	valid := []string{
+		"app.example.com",
+		"app.example.com,www.app.example.com",
+		"app.localhost,alias.localhost",
+	}
+	for _, host := range valid {
+		assert.NoError(t, ApplicationSettings{Image: "img:latest", Host: host}.Validate(), host)
+	}
+
+	mixed := []string{
+		"app.example.com,app.localhost",
+		"app.localhost,app.example.com",
+	}
+	for _, host := range mixed {
+		assert.ErrorIs(t, ApplicationSettings{Image: "img:latest", Host: host}.Validate(), ErrMixedLocalhostHosts, host)
+	}
+}

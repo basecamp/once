@@ -139,6 +139,14 @@ func (s ApplicationSettings) Validate() error {
 	if s.Backup.AutoBackup && s.Backup.Path == "" {
 		return ErrAutoBackupWithoutPath
 	}
+	// TLS is a single proxy-wide switch covering every hostname the app
+	// serves, so localhost and public hostnames cannot be mixed.
+	hosts := s.Hosts()
+	for _, host := range hosts {
+		if IsLocalhost(host) != IsLocalhost(hosts[0]) {
+			return ErrMixedLocalhostHosts
+		}
+	}
 	return nil
 }
 

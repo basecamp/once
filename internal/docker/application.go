@@ -28,6 +28,7 @@ var (
 	ErrApplicationNotRunning = errors.New("the application is not running")
 	ErrBackupPathRelative    = errors.New("backup path must be absolute")
 	ErrAutoBackupWithoutPath = errors.New("auto-backup requires a backup path")
+	ErrMixedLocalhostHosts   = errors.New("hosts must be all localhost or all public: TLS applies to every hostname an app serves")
 	ErrSetupFailed           = errors.New("setup failed")
 	ErrPullFailed            = &describedError{
 		msg:         "pull failed",
