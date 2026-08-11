@@ -379,3 +379,44 @@ func TestValidateRejectsMixedLocalhostHosts(t *testing.T) {
 		assert.ErrorIs(t, ApplicationSettings{Image: "img:latest", Host: host}.Validate(), ErrMixedLocalhostHosts, host)
 	}
 }
+
+func TestValidateCanonicalHost(t *testing.T) {
+	base := ApplicationSettings{Image: "img:latest", Host: "app.example.com,www.app.example.com"}
+
+	for _, canonical := range []string{"", "app.example.com", "www.app.example.com"} {
+		s := base
+		s.CanonicalHost = canonical
+		assert.NoError(t, s.Validate(), canonical)
+	}
+
+	s := base
+	s.CanonicalHost = "other.example.com"
+	assert.ErrorIs(t, s.Validate(), ErrCanonicalHostNotServed)
+}
+
+func TestDisplayHost(t *testing.T) {
+	s := ApplicationSettings{Host: "app.example.com,www.app.example.com"}
+	assert.Equal(t, "app.example.com", s.DisplayHost())
+
+	s.CanonicalHost = "www.app.example.com"
+	assert.Equal(t, "www.app.example.com", s.DisplayHost())
+
+	assert.Equal(t, "", ApplicationSettings{}.DisplayHost())
+}
+
+func TestCanonicalHostMarshalRoundTrip(t *testing.T) {
+	original := ApplicationSettings{
+		Name:          "app",
+		Image:         "img:latest",
+		Host:          "app.example.com,www.app.example.com",
+		CanonicalHost: "app.example.com",
+	}
+	restored, err := UnmarshalApplicationSettings(original.Marshal())
+	require.NoError(t, err)
+	assert.Equal(t, "app.example.com", restored.CanonicalHost)
+	assert.True(t, original.Equal(restored))
+
+	changed := original
+	changed.CanonicalHost = "www.app.example.com"
+	assert.False(t, original.Equal(changed))
+}

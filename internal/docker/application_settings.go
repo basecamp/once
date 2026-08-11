@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -86,16 +87,17 @@ type BackupSettings struct {
 }
 
 type ApplicationSettings struct {
-	Name       string             `json:"name"`
-	Image      string             `json:"image"`
-	Host       string             `json:"host"`
-	DisableTLS bool               `json:"disableTLS"`
-	EnvVars    map[string]string  `json:"env"`
-	SMTP       SMTPSettings       `json:"smtp"`
-	Resources  ContainerResources `json:"resources"`
-	AutoUpdate bool               `json:"autoUpdate"`
-	Backup     BackupSettings     `json:"backup"`
-	Keys       Keys               `json:"keys"`
+	Name          string             `json:"name"`
+	Image         string             `json:"image"`
+	Host          string             `json:"host"`
+	CanonicalHost string             `json:"canonicalHost,omitempty"`
+	DisableTLS    bool               `json:"disableTLS"`
+	EnvVars       map[string]string  `json:"env"`
+	SMTP          SMTPSettings       `json:"smtp"`
+	Resources     ContainerResources `json:"resources"`
+	AutoUpdate    bool               `json:"autoUpdate"`
+	Backup        BackupSettings     `json:"backup"`
+	Keys          Keys               `json:"keys"`
 }
 
 func UnmarshalApplicationSettings(s string) (ApplicationSettings, error) {
@@ -132,6 +134,15 @@ func (s ApplicationSettings) PrimaryHost() string {
 	return ""
 }
 
+// DisplayHost is the hostname visitors end up on: the canonical host when the
+// proxy is redirecting to one, otherwise the app's first hostname.
+func (s ApplicationSettings) DisplayHost() string {
+	if s.CanonicalHost != "" {
+		return s.CanonicalHost
+	}
+	return s.PrimaryHost()
+}
+
 func (s ApplicationSettings) Validate() error {
 	if s.Image == "" {
 		return ErrImageRequired
@@ -147,6 +158,11 @@ func (s ApplicationSettings) Validate() error {
 			return ErrMixedLocalhostHosts
 		}
 	}
+	// Redirecting to a hostname the app doesn't serve would send visitors to
+	// a route the proxy knows nothing about.
+	if s.CanonicalHost != "" && !slices.Contains(hosts, s.CanonicalHost) {
+		return ErrCanonicalHostNotServed
+	}
 	return nil
 }
 
@@ -156,6 +172,9 @@ func (s ApplicationSettings) TLSEnabled() bool {
 
 func (s ApplicationSettings) Equal(other ApplicationSettings) bool {
 	if s.Name != other.Name || s.Image != other.Image || s.Host != other.Host || s.DisableTLS != other.DisableTLS {
+		return false
+	}
+	if s.CanonicalHost != other.CanonicalHost {
 		return false
 	}
 	if s.Resources != other.Resources {

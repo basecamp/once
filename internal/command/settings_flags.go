@@ -11,23 +11,25 @@ import (
 )
 
 type settingsFlags struct {
-	host         []string
-	disableTLS   bool
-	env          []string
-	smtpServer   string
-	smtpPort     string
-	smtpUsername string
-	smtpPassword string
-	smtpFrom     string
-	cpus         int
-	memory       int
-	autoUpdate   bool
-	backupPath   string
-	autoBackup   bool
+	host          []string
+	canonicalHost string
+	disableTLS    bool
+	env           []string
+	smtpServer    string
+	smtpPort      string
+	smtpUsername  string
+	smtpPassword  string
+	smtpFrom      string
+	cpus          int
+	memory        int
+	autoUpdate    bool
+	backupPath    string
+	autoBackup    bool
 }
 
 func (f *settingsFlags) register(cmd *cobra.Command) {
 	cmd.Flags().StringArrayVar(&f.host, "host", nil, "hostname for the application (can be repeated to serve additional hostnames)")
+	cmd.Flags().StringVar(&f.canonicalHost, "canonical-host", "", "redirect all requests to this hostname (must be one of --host)")
 	cmd.Flags().BoolVar(&f.disableTLS, "disable-tls", false, "disable TLS for this application")
 	cmd.Flags().StringArrayVar(&f.env, "env", nil, "environment variable in KEY=VALUE format (can be repeated)")
 	cmd.Flags().StringVar(&f.smtpServer, "smtp-server", "", "SMTP server address")
@@ -53,10 +55,11 @@ func (f *settingsFlags) buildSettings(image, host string) (docker.ApplicationSet
 	}
 
 	s := docker.ApplicationSettings{
-		Image:      image,
-		Host:       host,
-		DisableTLS: f.disableTLS,
-		EnvVars:    envVars,
+		Image:         image,
+		Host:          host,
+		CanonicalHost: f.canonicalHost,
+		DisableTLS:    f.disableTLS,
+		EnvVars:       envVars,
 		SMTP: docker.SMTPSettings{
 			Server:   f.smtpServer,
 			Port:     f.smtpPort,
@@ -89,6 +92,9 @@ func (f *settingsFlags) applyChanges(cmd *cobra.Command, existing docker.Applica
 
 	if cmd.Flags().Changed("host") {
 		s.Host = strings.Join(f.host, ",")
+	}
+	if cmd.Flags().Changed("canonical-host") {
+		s.CanonicalHost = f.canonicalHost
 	}
 	if cmd.Flags().Changed("disable-tls") {
 		s.DisableTLS = f.disableTLS

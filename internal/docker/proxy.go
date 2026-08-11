@@ -54,10 +54,11 @@ func (s ProxySettings) Marshal() string {
 }
 
 type DeployOptions struct {
-	AppName string
-	Target  string
-	Hosts   []string
-	TLS     bool
+	AppName       string
+	Target        string
+	Hosts         []string
+	CanonicalHost string
+	TLS           bool
 }
 
 type Proxy struct {
@@ -220,6 +221,10 @@ func (p *Proxy) deployArgs(opts DeployOptions) []string {
 
 	for _, host := range opts.Hosts {
 		args = append(args, "--host", host)
+	}
+
+	if opts.CanonicalHost != "" {
+		args = append(args, "--canonical-host", opts.CanonicalHost)
 	}
 
 	if opts.TLS {
