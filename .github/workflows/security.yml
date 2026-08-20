@@ -111,7 +111,7 @@ jobs:
           import glob, json, os, sys
 
           accepted = {x for x in sys.argv[1].split() if x}
-          reachable = {}   # osv id -> set of module paths it was reached through
+          reachable = {}   # osv id -> {module path: set of versions} it was reached through
           advisories = {}
 
           for path in glob.glob(os.environ["RUNNER_TEMP"] + "/gv-*.json"):
@@ -127,20 +127,53 @@ jobs:
                   if f:
                       frame = (f.get("trace") or [{}])[0]
                       if frame.get("function"):
-                          reachable.setdefault(f["osv"], set()).add(frame.get("module"))
+                          mods = reachable.setdefault(f["osv"], {})
+                          mods.setdefault(frame.get("module"), set()).add(frame.get("version") or "v0.0.0")
 
-          def fixed_versions(osv_id, modules):
-              # Only a fix on a module path we actually import counts. These advisories
-              # routinely list a renamed module (moby/moby/v2) that carries the fix while
-              # the path we depend on (docker/docker) never gets one.
+          def parse(version):
+              # Enough of semver to order Go module versions: drop the leading v and any
+              # +incompatible/build metadata, split off a prerelease, compare numerically.
+              version = version.lstrip("v").split("+", 1)[0]
+              main, _, pre = version.partition("-")
+              parts = []
+              for chunk in main.split("."):
+                  parts.append(int(chunk) if chunk.isdigit() else 0)
+              while len(parts) < 3:
+                  parts.append(0)
+              # No prerelease sorts above a prerelease of the same version.
+              return (parts, 0 if pre else 1, pre)
+
+          def fix_for(osv_id, module_versions):
+              # Only a fix on a module path we actually import counts: these advisories
+              # routinely list a renamed module (moby/moby/v2) carrying the fix while the
+              # path we depend on (docker/docker) never gets one.
+              #
+              # And only a fix for the interval OUR version falls in counts. An advisory
+              # can be fixed, then reintroduced and left unfixed; treating the historical
+              # fixed event as an upgrade would fail the job forever with advice that does
+              # not apply.
               out = []
               for affected in (advisories.get(osv_id) or {}).get("affected", []):
-                  if affected.get("package", {}).get("name") not in modules:
+                  name = affected.get("package", {}).get("name")
+                  if name not in module_versions:
                       continue
-                  for rng in affected.get("ranges", []):
-                      for event in rng.get("events", []):
-                          if event.get("fixed"):
-                              out.append(f"{affected['package']['name']}@{event['fixed']}")
+                  for ours in module_versions[name]:
+                      try:
+                          target = parse(ours)
+                      except Exception:
+                          continue
+                      for rng in affected.get("ranges", []):
+                          introduced, fixed = None, None
+                          for event in rng.get("events", []):
+                              if event.get("introduced") is not None:
+                                  # A new interval starts; the previous one did not contain us.
+                                  introduced, fixed = event["introduced"], None
+                              elif event.get("fixed") is not None:
+                                  fixed = event["fixed"]
+                                  if introduced is not None and parse(introduced) <= target < parse(fixed):
+                                      out.append(f"{name}@{fixed}")
+                                  introduced = None
+                          # A trailing introduced with no fixed is an open, unfixed interval.
               return out
 
           problems = []
@@ -148,7 +181,7 @@ jobs:
               if osv_id not in accepted:
                   problems.append(osv_id)
                   continue
-              fixes = fixed_versions(osv_id, reachable[osv_id])
+              fixes = fix_for(osv_id, reachable[osv_id])
               if fixes:
                   problems.append(f"{osv_id} (accepted, but now fixed in {', '.join(sorted(set(fixes)))} -- drop it from ACCEPTED and upgrade)")
 
@@ -244,8 +277,13 @@ jobs:
 
           # Let a failure of the lookup itself stop the job rather than read as "no issue
           # open", which would file a duplicate.
-          existing=$(gh issue list --label govulncheck --state open --limit 30 --json number,title \
-            --jq "[.[] | select(.title == \"${title}\")] | .[0].number // empty")
+          # The title carries a ref name, which git allows to contain quotes -- pass it to
+          # jq as data via $ENV rather than interpolating it into the jq program.
+          # $ENV.TITLE is expanded by jq, not by the shell -- that is the point of passing
+          # the title as data instead of interpolating it, so SC2016 is expected here.
+          # shellcheck disable=SC2016
+          existing=$(TITLE="${title}" gh issue list --label govulncheck --state open --limit 30 --json number,title \
+            --jq '[.[] | select(.title == $ENV.TITLE)] | .[0].number // empty')
 
           if [ -n "${existing}" ]; then
             gh issue comment "${existing}" --body-file "${RUNNER_TEMP}/body.md"
