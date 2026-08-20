@@ -97,11 +97,8 @@ jobs:
 
           cat "${RUNNER_TEMP}/report.txt"
 
-          if [ "${scan_error}" -eq 1 ]; then
-            echo "outcome=error" >> "$GITHUB_OUTPUT"
-            echo "govulncheck failed to run; see above." >&2
-            exit 1
-          fi
+          # A failed target must not bury a real finding from a target that succeeded, so
+          # always filter whatever JSON was produced before deciding what to report.
 
           # Fail on findings govulncheck considers reachable (a symbol-level trace) that
           # are not in ACCEPTED -- the same set its "Your code is affected by N
@@ -189,10 +186,23 @@ jobs:
               print("\n".join(problems))
           PY
 
+          findings=0
           if [ -s "${RUNNER_TEMP}/new.txt" ]; then
-            echo "outcome=vulnerable" >> "$GITHUB_OUTPUT"
+            findings=1
             echo "Actionable findings:"
             cat "${RUNNER_TEMP}/new.txt"
+          fi
+
+          if [ "${scan_error}" -eq 1 ] && [ "${findings}" -eq 1 ]; then
+            echo "outcome=vulnerable-and-error" >> "$GITHUB_OUTPUT"
+            echo "govulncheck also failed to run for at least one target/module; see above." >&2
+            exit 1
+          elif [ "${scan_error}" -eq 1 ]; then
+            echo "outcome=error" >> "$GITHUB_OUTPUT"
+            echo "govulncheck failed to run for at least one target/module; see above." >&2
+            exit 1
+          elif [ "${findings}" -eq 1 ]; then
+            echo "outcome=vulnerable" >> "$GITHUB_OUTPUT"
             exit 1
           fi
           echo "outcome=clean" >> "$GITHUB_OUTPUT"
@@ -240,7 +250,9 @@ jobs:
             body_output="(govulncheck produced no output -- the job failed before or during the scan; see the run log.)"
           fi
 
-          if [ "${OUTCOME}" = "error" ]; then
+          if [ "${OUTCOME}" = "vulnerable-and-error" ]; then
+            headline="The scheduled \`govulncheck\` run found vulnerabilities that are not in this workflow's accepted list, **and** failed to scan at least one target or module. Both need attention: the findings below are real, and the coverage gap means there may be more."
+          elif [ "${OUTCOME}" = "error" ]; then
             headline="The scheduled \`govulncheck\` run **could not complete**. This is a scanner or environment failure, not a vulnerability report."
           elif [ "${OUTCOME}" = "vulnerable" ]; then
             headline="The scheduled \`govulncheck\` run found vulnerabilities that are not in this workflow's accepted list."
