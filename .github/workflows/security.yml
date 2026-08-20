@@ -53,15 +53,17 @@ jobs:
       # honestly. Revisit when moby/moby/v2 is stable.
       ACCEPTED: "GO-2026-4887 GO-2026-4883"
     steps:
-      # Always scan the default branch, including on workflow_dispatch: what we
-      # ship is what needs scanning, and pinning it keeps this to one tracking
-      # issue rather than one per dispatched ref. Note this pins the source tree
-      # only -- GitHub loads the workflow definition itself from the dispatched
-      # ref, which is why the reporting step checks it is the canonical run
-      # before touching the issue.
+      # No ref: on purpose. With none given, checkout pins to the SHA that
+      # triggered the run, so the tree and the workflow definition are the same
+      # commit -- a push that adds a module and its SCAN_MATRIX entry together
+      # can never be scanned with the previous matrix. Naming the branch instead
+      # would follow the moving tip and reintroduce exactly that gap.
+      #
+      # Scheduled runs only ever trigger on the default branch, which is what we
+      # ship. A workflow_dispatch from elsewhere scans its own ref, and the
+      # reporting step declines to touch the tracking issue for those.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
       - name: Record the scanned commit
