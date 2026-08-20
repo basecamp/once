@@ -1,6 +1,6 @@
 module github.com/basecamp/once
 
-go 1.26.4
+go 1.26.7
 
 require (
 	charm.land/bubbles/v2 v2.1.0
