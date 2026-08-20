@@ -11,9 +11,11 @@ on:
 permissions: {}
 
 # The reporting step reads then writes the tracking issue, which is not atomic.
-# A manual dispatch overlapping the scheduled run could otherwise file two.
+# Keyed by ref because that is the unit of contention: each ref has its own
+# tracking issue, so runs on different refs never touch the same one, and only
+# same-ref runs -- which scan the same tree -- need to queue behind each other.
 concurrency:
-  group: ${{ github.workflow }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -269,6 +271,9 @@ jobs:
           OUTCOME: ${{ steps.scan.outputs.outcome }}
           TARGETS: "linux/amd64 linux/arm64 darwin/amd64 darwin/arm64"
           SCANNED_REF: ${{ github.ref_name }}
+          # A branch and a tag can share a short name; the full ref keeps their
+          # tracking issues apart.
+          SCANNED_FULL_REF: ${{ github.ref }}
           SCANNED_SHA: ${{ github.sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
@@ -289,10 +294,14 @@ jobs:
           # A workflow_dispatch can target any ref, so never describe a run as being the
           # default branch without checking. Non-default refs get their own issue rather
           # than appending a branch-only finding to the canonical one.
-          if [ "${SCANNED_REF}" = "${DEFAULT_BRANCH}" ]; then
+          case "${SCANNED_FULL_REF}" in
+            refs/tags/*) ref_label="tag ${SCANNED_REF}" ;;
+            *)           ref_label="${SCANNED_REF}" ;;
+          esac
+          if [ "${SCANNED_FULL_REF}" = "refs/heads/${DEFAULT_BRANCH}" ]; then
             title="govulncheck: findings on ${DEFAULT_BRANCH}"
           else
-            title="govulncheck: findings on ${SCANNED_REF}"
+            title="govulncheck: findings on ${ref_label}"
           fi
           existing=$(lookup "${title}")
 
@@ -301,7 +310,7 @@ jobs:
           # tracking state is stale in the other direction.
           if [ "${OUTCOME}" = "clean" ]; then
             if [ -n "${existing}" ]; then
-              gh issue comment "${existing}" --body "The scheduled \`govulncheck\` run is clean again on \`${SCANNED_REF}\` @ \`${SCANNED_SHA}\` (targets \`${TARGETS}\`).
+              gh issue comment "${existing}" --body "The scheduled \`govulncheck\` run is clean again on \`${SCANNED_FULL_REF}\` @ \`${SCANNED_SHA}\` (targets \`${TARGETS}\`).
 
           Run: ${RUN_URL}
 
@@ -314,10 +323,21 @@ jobs:
             exit 0
           fi
 
-          if [ -s "${RUNNER_TEMP}/report.txt" ]; then
-            body_output=$(cat "${RUNNER_TEMP}/report.txt")
-          else
+          # GitHub caps an issue body or comment at 65536 characters. A dozen scans of
+          # verbose output can pass that, and gh would fail the whole report -- turning a
+          # large finding into no notification at all, which is the failure this workflow
+          # exists to prevent. Keep the head and tail and say what was dropped.
+          limit=45000
+          if [ ! -s "${RUNNER_TEMP}/report.txt" ]; then
             body_output="(govulncheck produced no output -- the job failed before or during the scan; see the run log.)"
+          elif [ "$(wc -c < "${RUNNER_TEMP}/report.txt")" -gt "${limit}" ]; then
+            body_output="$(head -c 22000 "${RUNNER_TEMP}/report.txt")
+
+          [... truncated to fit GitHub's 65536-character limit -- full output in the run log ...]
+
+          $(tail -c 22000 "${RUNNER_TEMP}/report.txt")"
+          else
+            body_output=$(cat "${RUNNER_TEMP}/report.txt")
           fi
 
           if [ "${OUTCOME}" = "vulnerable-and-error" ]; then
@@ -333,7 +353,7 @@ jobs:
           {
             echo "${headline}"
             echo
-            echo "Ref: \`${SCANNED_REF}\` @ \`${SCANNED_SHA}\`"
+            echo "Ref: \`${SCANNED_FULL_REF}\` @ \`${SCANNED_SHA}\`"
             echo "Targets: \`${TARGETS}\`"
             echo "Run: ${RUN_URL}"
             if [ -s "${RUNNER_TEMP}/new.txt" ]; then
