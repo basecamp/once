@@ -128,17 +128,36 @@ jobs:
                           mods.setdefault(frame.get("module"), set()).add(frame.get("version") or "v0.0.0")
 
           def parse(version):
-              # Enough of semver to order Go module versions: drop the leading v and any
-              # +incompatible/build metadata, split off a prerelease, compare numerically.
-              version = version.lstrip("v").split("+", 1)[0]
+              # Order Go module versions by SemVer rules. Two prefixes to shed: module
+              # versions carry "v" (v28.5.2), and stdlib findings carry "go" (go1.26.5)
+              # while the advisory's own ranges use a bare 1.26.5 -- comparing those
+              # unnormalized would match the wrong interval entirely. Build metadata
+              # (+incompatible) does not participate in precedence.
+              version = version.split("+", 1)[0]
+              if version.startswith("go"):
+                  version = version[2:]
+              elif version.startswith("v"):
+                  version = version[1:]
               main, _, pre = version.partition("-")
-              parts = []
+
+              release = []
               for chunk in main.split("."):
-                  parts.append(int(chunk) if chunk.isdigit() else 0)
-              while len(parts) < 3:
-                  parts.append(0)
-              # No prerelease sorts above a prerelease of the same version.
-              return (parts, 0 if pre else 1, pre)
+                  release.append(int(chunk) if chunk.isdigit() else 0)
+              while len(release) < 3:
+                  release.append(0)
+
+              # SemVer 11.4: dot-separated prerelease identifiers compare field by field;
+              # numeric ones compare numerically and rank below alphanumeric ones. String
+              # comparison would put beta.10 before beta.2.
+              identifiers = []
+              for chunk in pre.split(".") if pre else []:
+                  if chunk.isdigit():
+                      identifiers.append((0, int(chunk), ""))
+                  else:
+                      identifiers.append((1, 0, chunk))
+
+              # A version with no prerelease outranks the same release with one.
+              return (release, 0 if pre else 1, identifiers)
 
           def fix_for(osv_id, module_versions):
               # Only a fix on a module path we actually import counts: these advisories
@@ -172,6 +191,14 @@ jobs:
                                   introduced = None
                           # A trailing introduced with no fixed is an open, unfixed interval.
               return out
+
+          # An accepted ID that no longer shows up is a suppression with nothing left to
+          # suppress -- dead config that would silently swallow the advisory if a future
+          # version reintroduced it. Worth saying, not worth failing a clean run over.
+          stale = sorted(accepted - set(reachable))
+          if stale:
+              with open(os.environ["RUNNER_TEMP"] + "/stale-accepted.txt", "w") as handle:
+                  handle.write("\n".join(stale) + "\n")
 
           problems = []
           for osv_id in sorted(reachable):
@@ -214,6 +241,18 @@ jobs:
           {
             echo '## govulncheck'
             echo
+            if [ -s "${RUNNER_TEMP}/stale-accepted.txt" ]; then
+              echo '### Accepted IDs no longer reported'
+              echo
+              echo 'These are in ACCEPTED but the scan no longer finds them -- most likely'
+              echo 'the dependency was upgraded. Drop them, so the list cannot silently'
+              echo 'swallow the advisory if a later version reintroduces it.'
+              echo
+              echo '```'
+              cat "${RUNNER_TEMP}/stale-accepted.txt"
+              echo '```'
+              echo
+            fi
             echo '```'
             cat "${RUNNER_TEMP}/report.txt" 2>/dev/null || echo '(no output -- the job failed before scanning)'
             echo '```'
@@ -294,7 +333,11 @@ jobs:
           # $ENV.TITLE is expanded by jq, not by the shell -- that is the point of passing
           # the title as data instead of interpolating it, so SC2016 is expected here.
           # shellcheck disable=SC2016
-          existing=$(TITLE="${title}" gh issue list --label govulncheck --state open --limit 30 --json number,title \
+          # --limit bounds how many issues are fetched, and the jq filter only sees those.
+          # Failed dispatches on different refs deliberately open separate issues, so a
+          # small page could miss this ref's issue and open a duplicate. The label already
+          # narrows this to our own issues; the limit is just a sane ceiling above it.
+          existing=$(TITLE="${title}" gh issue list --label govulncheck --state open --limit 1000 --json number,title \
             --jq '[.[] | select(.title == $ENV.TITLE)] | .[0].number // empty')
 
           if [ -n "${existing}" ]; then
