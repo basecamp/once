@@ -26,6 +26,9 @@ jobs:
     env:
       # ./... does not cross module boundaries, so every module is listed.
       MODULES: ". installer integration/testapp"
+      # govulncheck's source mode only analyses the files the current build
+      # configuration selects, so scan each GOOS/GOARCH we actually release.
+      TARGETS: "linux/amd64 linux/arm64 darwin/amd64 darwin/arm64"
       # Findings we have looked at and are choosing to carry, so the run stays
       # quiet until something NEW appears. Everything else fails the job.
       #
@@ -66,20 +69,29 @@ jobs:
           rm -f "${RUNNER_TEMP}"/gv-*.json
           n=0
           scan_error=0
-          for module in ${MODULES}; do
-            n=$((n + 1))
-            echo "===== ${module}" >> "${RUNNER_TEMP}/report.txt"
-            ( cd "${module}" && govulncheck -format json ./... ) > "${RUNNER_TEMP}/gv-${n}.json" 2> "${RUNNER_TEMP}/gv-${n}.err"
-            rc=$?
-            # govulncheck: 0 = clean, 3 = vulnerabilities found, anything else = it failed to run.
-            if [ "${rc}" -ne 0 ] && [ "${rc}" -ne 3 ]; then
-              scan_error=1
-              echo "govulncheck exited ${rc} (scanner error, not a finding):" >> "${RUNNER_TEMP}/report.txt"
-              cat "${RUNNER_TEMP}/gv-${n}.err" >> "${RUNNER_TEMP}/report.txt"
-              rm -f "${RUNNER_TEMP}/gv-${n}.json"
-              continue
-            fi
-            ( cd "${module}" && govulncheck ./... ) >> "${RUNNER_TEMP}/report.txt" 2>&1
+          # Releases are built CGO_ENABLED=0 for each GOOS/GOARCH in TARGETS. govulncheck's
+          # source mode only sees the files the current build configuration selects, so a
+          # single native run would miss a path reachable only on another target.
+          export CGO_ENABLED=0
+          for target in ${TARGETS}; do
+            GOOS="${target%%/*}"
+            GOARCH="${target##*/}"
+            export GOOS GOARCH
+            for module in ${MODULES}; do
+              n=$((n + 1))
+              echo "===== ${target} ${module}" >> "${RUNNER_TEMP}/report.txt"
+              ( cd "${module}" && govulncheck -format json ./... ) > "${RUNNER_TEMP}/gv-${n}.json" 2> "${RUNNER_TEMP}/gv-${n}.err"
+              rc=$?
+              # govulncheck: 0 = clean, 3 = vulnerabilities found, anything else = it failed to run.
+              if [ "${rc}" -ne 0 ] && [ "${rc}" -ne 3 ]; then
+                scan_error=1
+                echo "govulncheck exited ${rc} (scanner error, not a finding):" >> "${RUNNER_TEMP}/report.txt"
+                cat "${RUNNER_TEMP}/gv-${n}.err" >> "${RUNNER_TEMP}/report.txt"
+                rm -f "${RUNNER_TEMP}/gv-${n}.json"
+                continue
+              fi
+              ( cd "${module}" && govulncheck ./... ) >> "${RUNNER_TEMP}/report.txt" 2>&1
+            done
           done
           set -e
 
@@ -91,13 +103,17 @@ jobs:
             exit 1
           fi
 
-          # Fail only on findings govulncheck considers reachable (a symbol-level trace)
-          # that are not in ACCEPTED -- the same set its "Your code is affected by N
-          # vulnerabilities" line counts.
+          # Fail on findings govulncheck considers reachable (a symbol-level trace) that
+          # are not in ACCEPTED -- the same set its "Your code is affected by N
+          # vulnerabilities" line counts -- and on accepted IDs that have since gained a
+          # fix for the module path we actually depend on.
           python3 - "$ACCEPTED" > "${RUNNER_TEMP}/new.txt" <<'PY'
           import glob, json, os, sys
+
           accepted = {x for x in sys.argv[1].split() if x}
-          reachable = set()
+          reachable = {}   # osv id -> set of module paths it was reached through
+          advisories = {}
+
           for path in glob.glob(os.environ["RUNNER_TEMP"] + "/gv-*.json"):
               raw = open(path).read()
               dec, i = json.JSONDecoder(), 0
@@ -105,22 +121,49 @@ jobs:
                   while i < len(raw) and raw[i].isspace(): i += 1
                   if i >= len(raw): break
                   obj, i = dec.raw_decode(raw, i)
+                  if "osv" in obj:
+                      advisories[obj["osv"]["id"]] = obj["osv"]
                   f = obj.get("finding")
-                  if f and (f.get("trace") or [{}])[0].get("function"):
-                      reachable.add(f["osv"])
-          new = sorted(reachable - accepted)
-          if new:
-              print("\n".join(new))
+                  if f:
+                      frame = (f.get("trace") or [{}])[0]
+                      if frame.get("function"):
+                          reachable.setdefault(f["osv"], set()).add(frame.get("module"))
+
+          def fixed_versions(osv_id, modules):
+              # Only a fix on a module path we actually import counts. These advisories
+              # routinely list a renamed module (moby/moby/v2) that carries the fix while
+              # the path we depend on (docker/docker) never gets one.
+              out = []
+              for affected in (advisories.get(osv_id) or {}).get("affected", []):
+                  if affected.get("package", {}).get("name") not in modules:
+                      continue
+                  for rng in affected.get("ranges", []):
+                      for event in rng.get("events", []):
+                          if event.get("fixed"):
+                              out.append(f"{affected['package']['name']}@{event['fixed']}")
+              return out
+
+          problems = []
+          for osv_id in sorted(reachable):
+              if osv_id not in accepted:
+                  problems.append(osv_id)
+                  continue
+              fixes = fixed_versions(osv_id, reachable[osv_id])
+              if fixes:
+                  problems.append(f"{osv_id} (accepted, but now fixed in {', '.join(sorted(set(fixes)))} -- drop it from ACCEPTED and upgrade)")
+
+          if problems:
+              print("\n".join(problems))
           PY
 
           if [ -s "${RUNNER_TEMP}/new.txt" ]; then
             echo "outcome=vulnerable" >> "$GITHUB_OUTPUT"
-            echo "New reachable vulnerabilities:"
+            echo "Actionable findings:"
             cat "${RUNNER_TEMP}/new.txt"
             exit 1
           fi
           echo "outcome=clean" >> "$GITHUB_OUTPUT"
-          echo "No new reachable vulnerabilities (accepted: ${ACCEPTED:-none})."
+          echo "No actionable findings (accepted: ${ACCEPTED:-none})."
 
       - name: Summarize
         if: always()
@@ -142,12 +185,22 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           OUTCOME: ${{ steps.scan.outputs.outcome }}
+          SCANNED_REF: ${{ github.ref_name }}
+          SCANNED_SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           # Always reflect THIS run into the tracking issue. An issue opened for an
           # earlier advisory says nothing about a new one, so bailing out when any issue
           # is open would recreate the silence this workflow exists to end. One issue,
           # kept current, with each run appended.
-          title="govulncheck: findings on the default branch"
+          # A workflow_dispatch can target any ref, so never describe a run as being the
+          # default branch without checking. Non-default refs get their own issue rather
+          # than appending a branch-only finding to the canonical one.
+          if [ "${SCANNED_REF}" = "${DEFAULT_BRANCH}" ]; then
+            title="govulncheck: findings on ${DEFAULT_BRANCH}"
+          else
+            title="govulncheck: findings on ${SCANNED_REF}"
+          fi
           if [ -s "${RUNNER_TEMP}/report.txt" ]; then
             body_output=$(cat "${RUNNER_TEMP}/report.txt")
           else
@@ -165,6 +218,8 @@ jobs:
           {
             echo "${headline}"
             echo
+            echo "Ref: \`${SCANNED_REF}\` @ \`${SCANNED_SHA}\`"
+            echo "Targets: \`${TARGETS}\`"
             echo "Run: ${RUN_URL}"
             if [ -s "${RUNNER_TEMP}/new.txt" ]; then
               echo
@@ -183,11 +238,14 @@ jobs:
             echo '</details>'
             echo
             echo "Standard library findings are usually cleared by bumping the \`go\` directive in \`go.mod\` (and any \`FROM golang:\` base image) to the version named under \"Fixed in\"."
+            echo
+            echo "An entry marked \"accepted, but now fixed\" means an ID in this workflow's ACCEPTED list has gained a fix for a module path we import: upgrade and drop the ID, rather than re-accepting it."
           } > "${RUNNER_TEMP}/body.md"
 
           # Let a failure of the lookup itself stop the job rather than read as "no issue
           # open", which would file a duplicate.
-          existing=$(gh issue list --label govulncheck --state open --limit 1 --json number --jq '.[].number')
+          existing=$(gh issue list --label govulncheck --state open --limit 30 --json number,title \
+            --jq "[.[] | select(.title == \"${title}\")] | .[0].number // empty")
 
           if [ -n "${existing}" ]; then
             gh issue comment "${existing}" --body-file "${RUNNER_TEMP}/body.md"
