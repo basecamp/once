@@ -25,11 +25,13 @@ jobs:
       contents: read
       issues: write
     env:
-      # ./... does not cross module boundaries, so every module is listed.
-      MODULES: ". installer integration/testapp"
-      # govulncheck's source mode only analyses the files the current build
-      # configuration selects, so scan each GOOS/GOARCH we actually release.
-      TARGETS: "linux/amd64 linux/arm64 darwin/amd64 darwin/arm64"
+      # One line per module: the module directory, then the GOOS/GOARCH targets
+      # that module actually ships on. ./... does not cross module boundaries,
+      # so every shipped module is listed; the targets differ per module because
+      # what each one ships on differs.
+      SCAN_MATRIX: |
+        . linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
+        installer linux/amd64 linux/arm64
       # Findings we have looked at and are choosing to carry, so the run stays
       # quiet until something NEW appears. Everything else fails the job.
       #
@@ -81,16 +83,33 @@ jobs:
           rm -f "${RUNNER_TEMP}"/gv-*.json
           n=0
           scan_error=0
-          # Releases are built CGO_ENABLED=0 for each GOOS/GOARCH in TARGETS. govulncheck's
-          # source mode only sees the files the current build configuration selects, so a
-          # single native run would miss a path reachable only on another target.
+          toolchain=$(go env GOVERSION)
+
+          # Releases are built CGO_ENABLED=0, and govulncheck's source mode only sees the
+          # files the current build configuration selects -- so each module is scanned for
+          # the platforms that module actually ships on. They are not the same list: a
+          # container-only artifact never runs on darwin, and reporting a darwin-only path
+          # against it would be a finding nobody can act on.
           export CGO_ENABLED=0
-          for target in ${TARGETS}; do
-            GOOS="${target%%/*}"
-            GOARCH="${target##*/}"
-            export GOOS GOARCH
-            for module in ${MODULES}; do
+          while read -r module targets; do
+            [ -z "${module}" ] && continue
+
+            # One setup-go installs one toolchain, from the root go.mod. If a nested
+            # module asks for a different one, this would silently scan it against the
+            # wrong standard library -- so say so rather than report a wrong answer.
+            want=$(awk '/^go /{print "go" $2; exit}' "${module}/go.mod")
+            if [ "${want}" != "${toolchain}" ]; then
+              scan_error=1
+              echo "===== ${module}" >> "${RUNNER_TEMP}/report.txt"
+              echo "module declares ${want} but the scan is running ${toolchain}; align the go directives or give this module its own scan job." >> "${RUNNER_TEMP}/report.txt"
+              continue
+            fi
+
+            for target in ${targets}; do
               n=$((n + 1))
+              GOOS="${target%%/*}"
+              GOARCH="${target##*/}"
+              export GOOS GOARCH
               echo "===== ${target} ${module}" >> "${RUNNER_TEMP}/report.txt"
               ( cd "${module}" && govulncheck -format json ./... ) > "${RUNNER_TEMP}/gv-${n}.json" 2> "${RUNNER_TEMP}/gv-${n}.err"
               rc=$?
@@ -104,7 +123,9 @@ jobs:
               fi
               ( cd "${module}" && govulncheck ./... ) >> "${RUNNER_TEMP}/report.txt" 2>&1
             done
-          done
+          done <<EOF
+          ${SCAN_MATRIX}
+          EOF
           set -e
 
           cat "${RUNNER_TEMP}/report.txt"
@@ -204,14 +225,6 @@ jobs:
                           # A trailing introduced with no fixed is an open, unfixed interval.
               return out
 
-          # An accepted ID that no longer shows up is a suppression with nothing left to
-          # suppress -- dead config that would silently swallow the advisory if a future
-          # version reintroduced it. Worth saying, not worth failing a clean run over.
-          stale = sorted(accepted - set(reachable))
-          if stale:
-              with open(os.environ["RUNNER_TEMP"] + "/stale-accepted.txt", "w") as handle:
-                  handle.write("\n".join(stale) + "\n")
-
           problems = []
           for osv_id in sorted(reachable):
               if osv_id not in accepted:
@@ -253,18 +266,6 @@ jobs:
           {
             echo '## govulncheck'
             echo
-            if [ -s "${RUNNER_TEMP}/stale-accepted.txt" ]; then
-              echo '### Accepted IDs no longer reported'
-              echo
-              echo 'These are in ACCEPTED but the scan no longer finds them -- most likely'
-              echo 'the dependency was upgraded. Drop them, so the list cannot silently'
-              echo 'swallow the advisory if a later version reintroduces it.'
-              echo
-              echo '```'
-              cat "${RUNNER_TEMP}/stale-accepted.txt"
-              echo '```'
-              echo
-            fi
             echo '```'
             cat "${RUNNER_TEMP}/report.txt" 2>/dev/null || echo '(no output -- the job failed before scanning)'
             echo '```'
@@ -279,7 +280,6 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           OUTCOME: ${{ steps.scan.outputs.outcome }}
-          TARGETS: "linux/amd64 linux/arm64 darwin/amd64 darwin/arm64"
           SCANNED_SHA: ${{ steps.commit.outputs.sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           GITHUB_REF: ${{ github.ref }}
@@ -306,7 +306,7 @@ jobs:
           # tracking state is stale in the other direction.
           if [ "${OUTCOME}" = "clean" ]; then
             if [ -n "${existing}" ]; then
-              gh issue comment "${existing}" --body "The scheduled \`govulncheck\` run is clean again at \`${SCANNED_SHA}\` (targets \`${TARGETS}\`).
+              gh issue comment "${existing}" --body "The scheduled \`govulncheck\` run is clean again at \`${SCANNED_SHA}\`.
 
           Run: ${RUN_URL}
 
@@ -349,7 +349,6 @@ jobs:
             echo "${headline}"
             echo
             echo "Commit: \`${SCANNED_SHA}\`"
-            echo "Targets: \`${TARGETS}\`"
             echo "Run: ${RUN_URL}"
             if [ -s "${RUNNER_TEMP}/new.txt" ]; then
               echo
