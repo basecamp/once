@@ -1,0 +1,126 @@
+name: Security
+
+# Toolchain and dependency advisories are published against code that has not
+# changed, so this runs on a clock rather than on a diff. Gating pull requests
+# on it would turn every newly published CVE into a red build on unrelated work.
+on:
+  schedule:
+    - cron: '31 6 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  govulncheck:
+    name: Govulncheck
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      # Findings we have looked at and are choosing to carry, so the run stays
+      # quiet until something NEW appears. Everything else fails the job.
+      #
+      # GO-2026-4887  Moby AuthZ plugin bypass on oversized request bodies
+      # GO-2026-4883  Moby off-by-one in plugin privilege validation
+      #
+      # Both are in github.com/docker/docker, which reports "Fixed in: N/A" --
+      # the fix exists only in github.com/moby/moby/v2 >= 2.0.0-beta.8, a
+      # module-path migration onto a beta.
+      #
+      # govulncheck reports these as reachable across most of the docker client
+      # surface we use, so treat that as "we link the module", not as a specific
+      # exploitable path: both bugs are in the *daemon's* plugin authorization,
+      # and we are a client of the daemon, not a host of it.
+      #
+      # Revisit when moby/moby/v2 is stable.
+      ACCEPTED: "GO-2026-4887 GO-2026-4883"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        id: scan
+        run: |
+          govulncheck -format json ./... > "${RUNNER_TEMP}/govulncheck.json"
+          govulncheck ./... > "${RUNNER_TEMP}/govulncheck.txt" 2>&1 || true
+          cat "${RUNNER_TEMP}/govulncheck.txt"
+
+          # Fail only on findings govulncheck considers reachable (a symbol-level
+          # trace) that are not in ACCEPTED. This is the same set its own
+          # "Your code is affected by N vulnerabilities" line counts.
+          new=$(python3 - "$ACCEPTED" <<'PY'
+          import json, os, sys
+          accepted = {x for x in sys.argv[1].split() if x}
+          raw = open(os.environ["RUNNER_TEMP"] + "/govulncheck.json").read()
+          dec, i, reachable = json.JSONDecoder(), 0, set()
+          while i < len(raw):
+              while i < len(raw) and raw[i].isspace(): i += 1
+              if i >= len(raw): break
+              obj, i = dec.raw_decode(raw, i)
+              f = obj.get("finding")
+              if f and (f.get("trace") or [{}])[0].get("function"):
+                  reachable.add(f["osv"])
+          print("\n".join(sorted(reachable - accepted)))
+          PY
+          )
+          if [ -n "$new" ]; then
+            echo "New reachable vulnerabilities:"
+            echo "$new"
+            echo "$new" > "${RUNNER_TEMP}/new.txt"
+            exit 1
+          fi
+          echo "No new reachable vulnerabilities (accepted: ${ACCEPTED:-none})."
+
+      - name: Summarize
+        if: always()
+        run: |
+          {
+            echo '## govulncheck'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/govulncheck.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # A scheduled job that only goes red in the Actions tab is the same silence
+      # this workflow exists to end, so failures open an issue. One at a time:
+      # if a govulncheck issue is already open, the finding is already visible.
+      - name: Report
+        if: failure() && steps.scan.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -n "$(gh issue list --label govulncheck --state open --limit 1 --json number --jq '.[].number')" ]; then
+            echo "A govulncheck issue is already open; not filing another."
+            exit 0
+          fi
+          gh label create govulncheck --description "Reported by the scheduled govulncheck run" --color d93f0b --force
+          {
+            echo "The scheduled \`govulncheck\` run reported vulnerabilities that are not in this workflow's accepted list."
+            echo
+            echo "Run: ${RUN_URL}"
+            echo
+            echo '### New'
+            echo '```'
+            cat "${RUNNER_TEMP}/new.txt" 2>/dev/null || echo '(see full output below)'
+            echo '```'
+            echo
+            echo '### Full output'
+            echo '```'
+            cat "${RUNNER_TEMP}/govulncheck.txt"
+            echo '```'
+            echo
+            echo "Standard library findings are usually cleared by bumping the \`go\` directive in \`go.mod\` to the version named under \"Fixed in\"."
+          } > "${RUNNER_TEMP}/issue.md"
+          gh issue create --title "govulncheck: new vulnerabilities reported" --label govulncheck --body-file "${RUNNER_TEMP}/issue.md"
