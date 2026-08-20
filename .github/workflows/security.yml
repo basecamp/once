@@ -258,19 +258,30 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Reports any failure, not just a failing scan: a broken checkout or a
-      # failed govulncheck install is also something nobody would otherwise see.
+      # Runs on success too, not just failure: a failing run leaves an issue open,
+      # and only a later clean run can close it. Skipped only on cancellation.
       - name: Report
-        if: failure()
+        if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           OUTCOME: ${{ steps.scan.outputs.outcome }}
+          TARGETS: "linux/amd64 linux/arm64 darwin/amd64 darwin/arm64"
           SCANNED_REF: ${{ github.ref_name }}
           SCANNED_SHA: ${{ github.sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          # --limit bounds how many issues are fetched, and the jq filter only sees those.
+          # Failed dispatches on different refs deliberately open separate issues, so a
+          # small page could miss this ref's issue and open a duplicate. The label already
+          # narrows this to our own issues; the limit is just a sane ceiling above it.
+          lookup() {
+            # shellcheck disable=SC2016
+            TITLE="$1" gh issue list --label govulncheck --state open --limit 1000 --json number,title \
+              --jq '[.[] | select(.title == $ENV.TITLE)] | .[0].number // empty'
+          }
+
           # Always reflect THIS run into the tracking issue. An issue opened for an
           # earlier advisory says nothing about a new one, so bailing out when any issue
           # is open would recreate the silence this workflow exists to end. One issue,
@@ -283,6 +294,26 @@ jobs:
           else
             title="govulncheck: findings on ${SCANNED_REF}"
           fi
+          existing=$(lookup "${title}")
+
+          # A clean run has to close the loop as well. Otherwise the issue from a run that
+          # failed -- or from a vulnerability since fixed -- stays open forever and the
+          # tracking state is stale in the other direction.
+          if [ "${OUTCOME}" = "clean" ]; then
+            if [ -n "${existing}" ]; then
+              gh issue comment "${existing}" --body "The scheduled \`govulncheck\` run is clean again on \`${SCANNED_REF}\` @ \`${SCANNED_SHA}\` (targets \`${TARGETS}\`).
+
+          Run: ${RUN_URL}
+
+          Closing; a later failure reopens tracking by filing a fresh issue."
+              gh issue close "${existing}" --reason completed
+              echo "Closed issue #${existing} -- scan is clean."
+            else
+              echo "Scan is clean and no tracking issue is open; nothing to do."
+            fi
+            exit 0
+          fi
+
           if [ -s "${RUNNER_TEMP}/report.txt" ]; then
             body_output=$(cat "${RUNNER_TEMP}/report.txt")
           else
@@ -333,13 +364,6 @@ jobs:
           # $ENV.TITLE is expanded by jq, not by the shell -- that is the point of passing
           # the title as data instead of interpolating it, so SC2016 is expected here.
           # shellcheck disable=SC2016
-          # --limit bounds how many issues are fetched, and the jq filter only sees those.
-          # Failed dispatches on different refs deliberately open separate issues, so a
-          # small page could miss this ref's issue and open a duplicate. The label already
-          # narrows this to our own issues; the limit is just a sane ceiling above it.
-          existing=$(TITLE="${title}" gh issue list --label govulncheck --state open --limit 1000 --json number,title \
-            --jq '[.[] | select(.title == $ENV.TITLE)] | .[0].number // empty')
-
           if [ -n "${existing}" ]; then
             gh issue comment "${existing}" --body-file "${RUNNER_TEMP}/body.md"
             echo "Updated issue #${existing}."
