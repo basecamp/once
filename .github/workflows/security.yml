@@ -10,6 +10,12 @@ on:
 
 permissions: {}
 
+# The reporting step reads then writes the tracking issue, which is not atomic.
+# A manual dispatch overlapping the scheduled run could otherwise file two.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   govulncheck:
     name: Govulncheck
@@ -18,6 +24,8 @@ jobs:
       contents: read
       issues: write
     env:
+      # ./... does not cross module boundaries, so every module is listed.
+      MODULES: ". installer integration/testapp"
       # Findings we have looked at and are choosing to carry, so the run stays
       # quiet until something NEW appears. Everything else fails the job.
       #
@@ -29,11 +37,14 @@ jobs:
       # module-path migration onto a beta.
       #
       # govulncheck reports these as reachable across most of the docker client
-      # surface we use, so treat that as "we link the module", not as a specific
+      # surface, so treat that as "we link the module", not as a specific
       # exploitable path: both bugs are in the *daemon's* plugin authorization,
       # and we are a client of the daemon, not a host of it.
       #
-      # Revisit when moby/moby/v2 is stable.
+      # An ID stays accepted only while it has no fix. Re-check when bumping
+      # docker, and drop the ID once a fixed version is reachable for us --
+      # otherwise this list keeps the job green exactly when it could go green
+      # honestly. Revisit when moby/moby/v2 is stable.
       ACCEPTED: "GO-2026-4887 GO-2026-4883"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,34 +61,65 @@ jobs:
       - name: Run govulncheck
         id: scan
         run: |
-          govulncheck -format json ./... > "${RUNNER_TEMP}/govulncheck.json"
-          govulncheck ./... > "${RUNNER_TEMP}/govulncheck.txt" 2>&1 || true
-          cat "${RUNNER_TEMP}/govulncheck.txt"
+          set +e
+          : > "${RUNNER_TEMP}/report.txt"
+          rm -f "${RUNNER_TEMP}"/gv-*.json
+          n=0
+          scan_error=0
+          for module in ${MODULES}; do
+            n=$((n + 1))
+            echo "===== ${module}" >> "${RUNNER_TEMP}/report.txt"
+            ( cd "${module}" && govulncheck -format json ./... ) > "${RUNNER_TEMP}/gv-${n}.json" 2> "${RUNNER_TEMP}/gv-${n}.err"
+            rc=$?
+            # govulncheck: 0 = clean, 3 = vulnerabilities found, anything else = it failed to run.
+            if [ "${rc}" -ne 0 ] && [ "${rc}" -ne 3 ]; then
+              scan_error=1
+              echo "govulncheck exited ${rc} (scanner error, not a finding):" >> "${RUNNER_TEMP}/report.txt"
+              cat "${RUNNER_TEMP}/gv-${n}.err" >> "${RUNNER_TEMP}/report.txt"
+              rm -f "${RUNNER_TEMP}/gv-${n}.json"
+              continue
+            fi
+            ( cd "${module}" && govulncheck ./... ) >> "${RUNNER_TEMP}/report.txt" 2>&1
+          done
+          set -e
 
-          # Fail only on findings govulncheck considers reachable (a symbol-level
-          # trace) that are not in ACCEPTED. This is the same set its own
-          # "Your code is affected by N vulnerabilities" line counts.
-          new=$(python3 - "$ACCEPTED" <<'PY'
-          import json, os, sys
-          accepted = {x for x in sys.argv[1].split() if x}
-          raw = open(os.environ["RUNNER_TEMP"] + "/govulncheck.json").read()
-          dec, i, reachable = json.JSONDecoder(), 0, set()
-          while i < len(raw):
-              while i < len(raw) and raw[i].isspace(): i += 1
-              if i >= len(raw): break
-              obj, i = dec.raw_decode(raw, i)
-              f = obj.get("finding")
-              if f and (f.get("trace") or [{}])[0].get("function"):
-                  reachable.add(f["osv"])
-          print("\n".join(sorted(reachable - accepted)))
-          PY
-          )
-          if [ -n "$new" ]; then
-            echo "New reachable vulnerabilities:"
-            echo "$new"
-            echo "$new" > "${RUNNER_TEMP}/new.txt"
+          cat "${RUNNER_TEMP}/report.txt"
+
+          if [ "${scan_error}" -eq 1 ]; then
+            echo "outcome=error" >> "$GITHUB_OUTPUT"
+            echo "govulncheck failed to run; see above." >&2
             exit 1
           fi
+
+          # Fail only on findings govulncheck considers reachable (a symbol-level trace)
+          # that are not in ACCEPTED -- the same set its "Your code is affected by N
+          # vulnerabilities" line counts.
+          python3 - "$ACCEPTED" > "${RUNNER_TEMP}/new.txt" <<'PY'
+          import glob, json, os, sys
+          accepted = {x for x in sys.argv[1].split() if x}
+          reachable = set()
+          for path in glob.glob(os.environ["RUNNER_TEMP"] + "/gv-*.json"):
+              raw = open(path).read()
+              dec, i = json.JSONDecoder(), 0
+              while i < len(raw):
+                  while i < len(raw) and raw[i].isspace(): i += 1
+                  if i >= len(raw): break
+                  obj, i = dec.raw_decode(raw, i)
+                  f = obj.get("finding")
+                  if f and (f.get("trace") or [{}])[0].get("function"):
+                      reachable.add(f["osv"])
+          new = sorted(reachable - accepted)
+          if new:
+              print("\n".join(new))
+          PY
+
+          if [ -s "${RUNNER_TEMP}/new.txt" ]; then
+            echo "outcome=vulnerable" >> "$GITHUB_OUTPUT"
+            echo "New reachable vulnerabilities:"
+            cat "${RUNNER_TEMP}/new.txt"
+            exit 1
+          fi
+          echo "outcome=clean" >> "$GITHUB_OUTPUT"
           echo "No new reachable vulnerabilities (accepted: ${ACCEPTED:-none})."
 
       - name: Summarize
@@ -87,40 +129,70 @@ jobs:
             echo '## govulncheck'
             echo
             echo '```'
-            cat "${RUNNER_TEMP}/govulncheck.txt"
+            cat "${RUNNER_TEMP}/report.txt" 2>/dev/null || echo '(no output -- the job failed before scanning)'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # A scheduled job that only goes red in the Actions tab is the same silence
-      # this workflow exists to end, so failures open an issue. One at a time:
-      # if a govulncheck issue is already open, the finding is already visible.
+      # Reports any failure, not just a failing scan: a broken checkout or a
+      # failed govulncheck install is also something nobody would otherwise see.
       - name: Report
-        if: failure() && steps.scan.outcome == 'failure'
+        if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OUTCOME: ${{ steps.scan.outputs.outcome }}
         run: |
-          if [ -n "$(gh issue list --label govulncheck --state open --limit 1 --json number --jq '.[].number')" ]; then
-            echo "A govulncheck issue is already open; not filing another."
-            exit 0
+          # Always reflect THIS run into the tracking issue. An issue opened for an
+          # earlier advisory says nothing about a new one, so bailing out when any issue
+          # is open would recreate the silence this workflow exists to end. One issue,
+          # kept current, with each run appended.
+          title="govulncheck: findings on the default branch"
+          if [ -s "${RUNNER_TEMP}/report.txt" ]; then
+            body_output=$(cat "${RUNNER_TEMP}/report.txt")
+          else
+            body_output="(govulncheck produced no output -- the job failed before or during the scan; see the run log.)"
           fi
-          gh label create govulncheck --description "Reported by the scheduled govulncheck run" --color d93f0b --force
+
+          if [ "${OUTCOME}" = "error" ]; then
+            headline="The scheduled \`govulncheck\` run **could not complete**. This is a scanner or environment failure, not a vulnerability report."
+          elif [ "${OUTCOME}" = "vulnerable" ]; then
+            headline="The scheduled \`govulncheck\` run found vulnerabilities that are not in this workflow's accepted list."
+          else
+            headline="The scheduled \`govulncheck\` job failed before it could scan. This is an environment or setup failure, not a vulnerability report."
+          fi
+
           {
-            echo "The scheduled \`govulncheck\` run reported vulnerabilities that are not in this workflow's accepted list."
+            echo "${headline}"
             echo
             echo "Run: ${RUN_URL}"
+            if [ -s "${RUNNER_TEMP}/new.txt" ]; then
+              echo
+              echo '### Not in the accepted list'
+              echo '```'
+              cat "${RUNNER_TEMP}/new.txt"
+              echo '```'
+            fi
             echo
-            echo '### New'
+            echo '<details><summary>govulncheck output</summary>'
+            echo
             echo '```'
-            cat "${RUNNER_TEMP}/new.txt" 2>/dev/null || echo '(see full output below)'
+            echo "${body_output}"
             echo '```'
             echo
-            echo '### Full output'
-            echo '```'
-            cat "${RUNNER_TEMP}/govulncheck.txt"
-            echo '```'
+            echo '</details>'
             echo
-            echo "Standard library findings are usually cleared by bumping the \`go\` directive in \`go.mod\` to the version named under \"Fixed in\"."
-          } > "${RUNNER_TEMP}/issue.md"
-          gh issue create --title "govulncheck: new vulnerabilities reported" --label govulncheck --body-file "${RUNNER_TEMP}/issue.md"
+            echo "Standard library findings are usually cleared by bumping the \`go\` directive in \`go.mod\` (and any \`FROM golang:\` base image) to the version named under \"Fixed in\"."
+          } > "${RUNNER_TEMP}/body.md"
+
+          # Let a failure of the lookup itself stop the job rather than read as "no issue
+          # open", which would file a duplicate.
+          existing=$(gh issue list --label govulncheck --state open --limit 1 --json number --jq '.[].number')
+
+          if [ -n "${existing}" ]; then
+            gh issue comment "${existing}" --body-file "${RUNNER_TEMP}/body.md"
+            echo "Updated issue #${existing}."
+          else
+            gh label create govulncheck --description "Reported by the scheduled govulncheck run" --color d93f0b --force
+            gh issue create --title "${title}" --label govulncheck --body-file "${RUNNER_TEMP}/body.md"
+          fi
