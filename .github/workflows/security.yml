@@ -51,9 +51,12 @@ jobs:
       # honestly. Revisit when moby/moby/v2 is stable.
       ACCEPTED: "GO-2026-4887 GO-2026-4883"
     steps:
-      # Always scan the default branch, including on workflow_dispatch. What we
-      # ship is what needs scanning, and pinning it here is what keeps this a
-      # single tracking issue rather than one per dispatched ref.
+      # Always scan the default branch, including on workflow_dispatch: what we
+      # ship is what needs scanning, and pinning it keeps this to one tracking
+      # issue rather than one per dispatched ref. Note this pins the source tree
+      # only -- GitHub loads the workflow definition itself from the dispatched
+      # ref, which is why the reporting step checks it is the canonical run
+      # before touching the issue.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
@@ -279,18 +282,24 @@ jobs:
           TARGETS: "linux/amd64 linux/arm64 darwin/amd64 darwin/arm64"
           SCANNED_SHA: ${{ steps.commit.outputs.sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GITHUB_REF: ${{ github.ref }}
         run: |
-          # One tracking issue per repo. The scan always runs against the default branch,
-          # so there is exactly one thing to track and the title is fixed.
-          title="govulncheck: findings on ${DEFAULT_BRANCH}"
+          # The scan always runs against the default branch, so there is exactly one thing
+          # to track: one issue, found by its own label. Matching on the title instead
+          # would break the moment the default branch is renamed or someone edits the
+          # title, and would silently open a second issue.
+          existing=$(gh issue list --label govulncheck --state open --limit 1 --json number --jq '.[0].number // empty')
 
-          # shellcheck disable=SC2016
-          lookup() {
-            TITLE="${title}" gh issue list --label govulncheck --state open --limit 1000 --json number,title \
-              --jq '[.[] | select(.title == $ENV.TITLE)] | .[0].number // empty'
-          }
-
-          existing=$(lookup)
+          # Only the canonical run owns that issue. workflow_dispatch pins the *source
+          # tree* to the default branch but not the workflow definition, which GitHub
+          # loads from the dispatched ref -- so a branch carrying an experimental ACCEPTED
+          # list or reporting change would otherwise write to, or close, the real issue.
+          # Dispatching from a branch stays useful for trying this workflow out; it just
+          # reports to the run summary instead.
+          if [ "${GITHUB_REF}" != "refs/heads/${DEFAULT_BRANCH}" ]; then
+            echo "Running from ${GITHUB_REF}, not the default branch -- results are in the run summary; the tracking issue is left alone."
+            exit 0
+          fi
 
           # A clean run has to close the loop too. Otherwise the issue from a run that
           # failed -- or from a vulnerability since fixed -- stays open forever, and the
@@ -368,5 +377,5 @@ jobs:
             echo "Updated issue #${existing}."
           else
             gh label create govulncheck --description "Reported by the scheduled govulncheck run" --color d93f0b --force
-            gh issue create --title "${title}" --label govulncheck --body-file "${RUNNER_TEMP}/body.md"
+            gh issue create --title "govulncheck: findings on the default branch" --label govulncheck --body-file "${RUNNER_TEMP}/body.md"
           fi
