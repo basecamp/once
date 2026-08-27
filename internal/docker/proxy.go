@@ -53,6 +53,19 @@ func (s ProxySettings) Marshal() string {
 	return string(b)
 }
 
+func (s ProxySettings) withDefaults() ProxySettings {
+	if s.HTTPPort == 0 {
+		s.HTTPPort = DefaultHTTPPort
+	}
+	if s.HTTPSPort == 0 {
+		s.HTTPSPort = DefaultHTTPSPort
+	}
+	if s.MetricsPort == 0 {
+		s.MetricsPort = DefaultMetricsPort
+	}
+	return s
+}
+
 type DeployOptions struct {
 	AppName string
 	Target  string
@@ -62,23 +75,16 @@ type DeployOptions struct {
 
 type Proxy struct {
 	namespace *Namespace
+	Image     string
 	Settings  *ProxySettings
 }
 
 func NewProxy(ns *Namespace) *Proxy {
-	return &Proxy{namespace: ns}
+	return &Proxy{namespace: ns, Image: ProxyImage}
 }
 
 func (p *Proxy) Boot(ctx context.Context, settings ProxySettings) error {
-	if settings.HTTPPort == 0 {
-		settings.HTTPPort = DefaultHTTPPort
-	}
-	if settings.HTTPSPort == 0 {
-		settings.HTTPSPort = DefaultHTTPSPort
-	}
-	if settings.MetricsPort == 0 {
-		settings.MetricsPort = DefaultMetricsPort
-	}
+	settings = settings.withDefaults()
 
 	info, err := p.namespace.client.ContainerInspect(ctx, p.containerName())
 	if err == nil {
@@ -88,19 +94,109 @@ func (p *Proxy) Boot(ctx context.Context, settings ProxySettings) error {
 		return fmt.Errorf("inspecting proxy container: %w", err)
 	}
 
-	reader, err := p.namespace.client.ImagePull(ctx, ProxyImage, image.PullOptions{})
+	if err := p.pullImage(ctx); err != nil {
+		return err
+	}
+
+	return p.create(ctx, settings)
+}
+
+func (p *Proxy) Update(ctx context.Context) (bool, error) {
+	info, err := p.namespace.client.ContainerInspect(ctx, p.containerName())
+	if errdefs.IsNotFound(err) {
+		return false, ErrProxyNotInstalled
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspecting proxy container: %w", err)
+	}
+
+	settings := ProxySettings{}
+	if label := info.Config.Labels[labelKey]; label != "" {
+		settings, err = UnmarshalProxySettings(label)
+		if err != nil {
+			return false, fmt.Errorf("unmarshalling proxy settings: %w", err)
+		}
+	}
+	settings = settings.withDefaults()
+
+	if err := p.pullImage(ctx); err != nil {
+		return false, err
+	}
+
+	img, err := p.namespace.client.ImageInspect(ctx, p.Image)
+	if err != nil {
+		return false, fmt.Errorf("inspecting proxy image: %w", err)
+	}
+	if img.ID == info.Image {
+		return false, nil
+	}
+
+	if err := p.namespace.client.ContainerRemove(ctx, p.containerName(), container.RemoveOptions{Force: true}); err != nil {
+		return false, fmt.Errorf("removing proxy container: %w", err)
+	}
+
+	return true, p.create(ctx, settings)
+}
+
+func (p *Proxy) Destroy(ctx context.Context) error {
+	containerName := p.containerName()
+
+	if err := p.namespace.client.ContainerRemove(ctx, containerName, container.RemoveOptions{Force: true}); err != nil {
+		if !errdefs.IsNotFound(err) {
+			return fmt.Errorf("removing proxy: %w", err)
+		}
+	}
+
+	if err := p.namespace.client.VolumeRemove(ctx, containerName, true); err != nil {
+		if !errdefs.IsNotFound(err) {
+			return fmt.Errorf("removing proxy volume: %w", err)
+		}
+	}
+
+	p.Settings = nil
+	return nil
+}
+
+func (p *Proxy) Exec(ctx context.Context, cmd []string) error {
+	output, err := p.ExecOutput(ctx, cmd)
+	if err != nil && output != "" {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(output))
+	}
+	return err
+}
+
+func (p *Proxy) Remove(ctx context.Context, appName string) error {
+	return p.Exec(ctx, []string{"kamal-proxy", "remove", appName})
+}
+
+func (p *Proxy) Deploy(ctx context.Context, opts DeployOptions) error {
+	return p.Exec(ctx, p.deployArgs(opts))
+}
+
+func (p *Proxy) containerName() string {
+	return p.namespace.name + "-proxy"
+}
+
+// Private
+
+func (p *Proxy) pullImage(ctx context.Context) error {
+	reader, err := p.namespace.client.ImagePull(ctx, p.Image, image.PullOptions{})
 	if err != nil {
 		return fmt.Errorf("pulling proxy image: %w", err)
 	}
 	defer reader.Close()
 	_, _ = io.Copy(io.Discard, reader)
 
+	return nil
+}
+
+func (p *Proxy) create(ctx context.Context, settings ProxySettings) error {
 	name := p.containerName()
 	metricsPortTCP := nat.Port(fmt.Sprintf("%d/tcp", settings.MetricsPort))
 
 	resp, err := p.namespace.client.ContainerCreate(ctx,
 		&container.Config{
-			Image: ProxyImage,
+			Image: p.Image,
 			Cmd:   []string{"kamal-proxy", "run", "--metrics-port", fmt.Sprintf("%d", settings.MetricsPort)},
 			Labels: map[string]string{
 				labelKey: settings.Marshal(),
@@ -150,47 +246,6 @@ func (p *Proxy) Boot(ctx context.Context, settings ProxySettings) error {
 	p.Settings = &settings
 	return nil
 }
-
-func (p *Proxy) Destroy(ctx context.Context) error {
-	containerName := p.containerName()
-
-	if err := p.namespace.client.ContainerRemove(ctx, containerName, container.RemoveOptions{Force: true}); err != nil {
-		if !errdefs.IsNotFound(err) {
-			return fmt.Errorf("removing proxy: %w", err)
-		}
-	}
-
-	if err := p.namespace.client.VolumeRemove(ctx, containerName, true); err != nil {
-		if !errdefs.IsNotFound(err) {
-			return fmt.Errorf("removing proxy volume: %w", err)
-		}
-	}
-
-	p.Settings = nil
-	return nil
-}
-
-func (p *Proxy) Exec(ctx context.Context, cmd []string) error {
-	output, err := p.ExecOutput(ctx, cmd)
-	if err != nil && output != "" {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(output))
-	}
-	return err
-}
-
-func (p *Proxy) Remove(ctx context.Context, appName string) error {
-	return p.Exec(ctx, []string{"kamal-proxy", "remove", appName})
-}
-
-func (p *Proxy) Deploy(ctx context.Context, opts DeployOptions) error {
-	return p.Exec(ctx, p.deployArgs(opts))
-}
-
-func (p *Proxy) containerName() string {
-	return p.namespace.name + "-proxy"
-}
-
-// Private
 
 func (p *Proxy) ensureRunning(ctx context.Context, info container.InspectResponse) error {
 	if !info.State.Running {

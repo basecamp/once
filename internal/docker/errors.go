@@ -15,6 +15,10 @@ type DescribedError interface {
 }
 
 var (
+	ErrProxyNotInstalled = &describedError{
+		msg:         "proxy is not installed",
+		description: "No proxy container was found. Deploy an application first to set up the proxy.",
+	}
 	ErrProxyPortInUse = &describedError{
 		msg:         "proxy port conflict",
 		description: "Something else is using the web ports on this machine. You'll need to stop that service, and then try deploying again.",

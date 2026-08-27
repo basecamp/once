@@ -258,6 +258,52 @@ func TestUpdateDetectsLocalImageChange(t *testing.T) {
 	assert.NotEqual(t, firstContainer, secondContainer, "container should change after update")
 }
 
+func TestProxyUpdate(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	registryURL := startLocalRegistry(t, ctx)
+	imageTag := registryURL + "/proxy-update-test:latest"
+
+	buildAndPushImageFrom(t, ctx, proxyBaseImage(t, ctx), imageTag, "v1")
+
+	ns := newTestNamespace(t, "once-proxy-update-test")
+	require.NoError(t, ns.EnsureNetwork(ctx))
+
+	ports := getProxyPorts(t)
+	proxy := ns.Proxy()
+	proxy.Image = imageTag
+	require.NoError(t, proxy.Boot(ctx, ports))
+
+	containerName := ns.Name() + "-proxy"
+	firstID := inspectContainerID(t, ctx, containerName)
+
+	updated, err := proxy.Update(ctx)
+	require.NoError(t, err)
+	assert.False(t, updated, "proxy should already be up to date")
+	assert.Equal(t, firstID, inspectContainerID(t, ctx, containerName), "up-to-date proxy should not restart")
+
+	state := &docker.State{Apps: map[string]*docker.AppState{"proxyupdate": {}}}
+	require.NoError(t, proxy.SaveState(ctx, state))
+
+	buildAndPushImageFrom(t, ctx, proxyBaseImage(t, ctx), imageTag, "v2")
+
+	updated, err = proxy.Update(ctx)
+	require.NoError(t, err)
+	assert.True(t, updated, "proxy should update to the newer image")
+	assert.NotEqual(t, firstID, inspectContainerID(t, ctx, containerName), "proxy container should be replaced")
+	assertContainerRunning(t, ctx, containerName, true)
+
+	require.NotNil(t, proxy.Settings)
+	assert.Equal(t, ports, *proxy.Settings, "proxy settings should survive the update")
+
+	restored, err := proxy.LoadState(ctx)
+	require.NoError(t, err)
+	assert.Contains(t, restored.Apps, "proxyupdate", "proxy volume should survive the update")
+}
+
 func TestLargeLabelData(t *testing.T) {
 	t.Parallel()
 
@@ -1341,8 +1387,18 @@ func buildHookImage(t *testing.T, ctx context.Context, registryURL, imageName, h
 
 func baseImage(t *testing.T, ctx context.Context) v1.Image {
 	t.Helper()
+	return remoteImage(t, ctx, integrationAppImageRef)
+}
 
-	ref, err := name.ParseReference(integrationAppImageRef)
+func proxyBaseImage(t *testing.T, ctx context.Context) v1.Image {
+	t.Helper()
+	return remoteImage(t, ctx, docker.ProxyImage)
+}
+
+func remoteImage(t *testing.T, ctx context.Context, imageRef string) v1.Image {
+	t.Helper()
+
+	ref, err := name.ParseReference(imageRef)
 	require.NoError(t, err)
 	img, err := remote.Image(ref, remote.WithContext(ctx))
 	require.NoError(t, err)
@@ -1406,6 +1462,17 @@ func buildTestBackup(t *testing.T, imageName string) []byte {
 	return buf.Bytes()
 }
 
+func inspectContainerID(t *testing.T, ctx context.Context, name string) string {
+	t.Helper()
+	c, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	require.NoError(t, err)
+	defer c.Close()
+
+	info, err := c.ContainerInspect(ctx, name)
+	require.NoError(t, err)
+	return info.ID
+}
+
 func inspectContainerEnv(t *testing.T, ctx context.Context, name string) []string {
 	t.Helper()
 	c, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
@@ -1457,7 +1524,12 @@ func extractTarGz(t *testing.T, r io.Reader) map[string][]byte {
 func buildAndPushImage(t *testing.T, ctx context.Context, tag, version string) {
 	t.Helper()
 
-	base := baseImage(t, ctx)
+	buildAndPushImageFrom(t, ctx, baseImage(t, ctx), tag, version)
+}
+
+func buildAndPushImageFrom(t *testing.T, ctx context.Context, base v1.Image, tag, version string) {
+	t.Helper()
+
 	cfg, err := base.ConfigFile()
 	require.NoError(t, err)
 

@@ -16,6 +16,22 @@ func TestProxyContainerName(t *testing.T) {
 	assert.Equal(t, "staging-proxy", proxy2.containerName())
 }
 
+func TestProxySettingsWithDefaults(t *testing.T) {
+	t.Run("zero values get defaults", func(t *testing.T) {
+		settings := ProxySettings{}.withDefaults()
+
+		assert.Equal(t, DefaultHTTPPort, settings.HTTPPort)
+		assert.Equal(t, DefaultHTTPSPort, settings.HTTPSPort)
+		assert.Equal(t, DefaultMetricsPort, settings.MetricsPort)
+	})
+
+	t.Run("explicit values are preserved", func(t *testing.T) {
+		settings := ProxySettings{HTTPPort: 8080, HTTPSPort: 8443, MetricsPort: 9090}.withDefaults()
+
+		assert.Equal(t, ProxySettings{HTTPPort: 8080, HTTPSPort: 8443, MetricsPort: 9090}, settings)
+	})
+}
+
 func TestDeployArgs(t *testing.T) {
 	proxy := &Proxy{}
 
