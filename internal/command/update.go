@@ -55,8 +55,10 @@ func (u *updateCommand) run(ctx context.Context, ns *docker.Namespace, cmd *cobr
 	}
 
 	if settings.Host != app.Settings.Host {
-		if ns.HostInUseByAnother(settings.Host, app.Settings.Name) {
-			return docker.ErrHostnameInUse
+		for _, host := range settings.Hosts() {
+			if ns.HostInUseByAnother(host, app.Settings.Name) {
+				return docker.ErrHostnameInUse
+			}
 		}
 	}
 

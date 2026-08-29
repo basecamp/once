@@ -338,3 +338,85 @@ func TestAutoUpdateAndBackupMarshalRoundTrip(t *testing.T) {
 	assert.True(t, restored.Backup.AutoBackup)
 	assert.True(t, original.Equal(restored))
 }
+
+func TestHosts(t *testing.T) {
+	assert.Nil(t, ApplicationSettings{}.Hosts())
+	assert.Equal(t, []string{"app.example.com"}, ApplicationSettings{Host: "app.example.com"}.Hosts())
+	assert.Equal(t,
+		[]string{"app.example.com", "www.app.example.com"},
+		ApplicationSettings{Host: "app.example.com,www.app.example.com"}.Hosts())
+	assert.Equal(t,
+		[]string{"app.example.com", "www.app.example.com"},
+		ApplicationSettings{Host: " app.example.com , www.app.example.com ,"}.Hosts())
+}
+
+func TestPrimaryHost(t *testing.T) {
+	assert.Equal(t, "", ApplicationSettings{}.PrimaryHost())
+	assert.Equal(t, "app.example.com", ApplicationSettings{Host: "app.example.com"}.PrimaryHost())
+	assert.Equal(t, "app.example.com", ApplicationSettings{Host: "app.example.com,www.app.example.com"}.PrimaryHost())
+}
+
+func TestTLSEnabledWithMultipleHosts(t *testing.T) {
+	assert.True(t, ApplicationSettings{Host: "app.example.com,www.app.example.com"}.TLSEnabled())
+	assert.False(t, ApplicationSettings{Host: "app.localhost,www.app.example.com"}.TLSEnabled())
+}
+
+func TestValidateRejectsMixedLocalhostHosts(t *testing.T) {
+	valid := []string{
+		"app.example.com",
+		"app.example.com,www.app.example.com",
+		"app.localhost,alias.localhost",
+	}
+	for _, host := range valid {
+		assert.NoError(t, ApplicationSettings{Image: "img:latest", Host: host}.Validate(), host)
+	}
+
+	mixed := []string{
+		"app.example.com,app.localhost",
+		"app.localhost,app.example.com",
+	}
+	for _, host := range mixed {
+		assert.ErrorIs(t, ApplicationSettings{Image: "img:latest", Host: host}.Validate(), ErrMixedLocalhostHosts, host)
+	}
+}
+
+func TestValidateCanonicalHost(t *testing.T) {
+	base := ApplicationSettings{Image: "img:latest", Host: "app.example.com,www.app.example.com"}
+
+	for _, canonical := range []string{"", "app.example.com", "www.app.example.com"} {
+		s := base
+		s.CanonicalHost = canonical
+		assert.NoError(t, s.Validate(), canonical)
+	}
+
+	s := base
+	s.CanonicalHost = "other.example.com"
+	assert.ErrorIs(t, s.Validate(), ErrCanonicalHostNotServed)
+}
+
+func TestDisplayHost(t *testing.T) {
+	s := ApplicationSettings{Host: "app.example.com,www.app.example.com"}
+	assert.Equal(t, "app.example.com", s.DisplayHost())
+
+	s.CanonicalHost = "www.app.example.com"
+	assert.Equal(t, "www.app.example.com", s.DisplayHost())
+
+	assert.Equal(t, "", ApplicationSettings{}.DisplayHost())
+}
+
+func TestCanonicalHostMarshalRoundTrip(t *testing.T) {
+	original := ApplicationSettings{
+		Name:          "app",
+		Image:         "img:latest",
+		Host:          "app.example.com,www.app.example.com",
+		CanonicalHost: "app.example.com",
+	}
+	restored, err := UnmarshalApplicationSettings(original.Marshal())
+	require.NoError(t, err)
+	assert.Equal(t, "app.example.com", restored.CanonicalHost)
+	assert.True(t, original.Equal(restored))
+
+	changed := original
+	changed.CanonicalHost = "www.app.example.com"
+	assert.False(t, original.Equal(changed))
+}

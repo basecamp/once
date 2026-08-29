@@ -25,7 +25,9 @@ func NewSettingsFormApplication(settings docker.ApplicationSettings) SettingsFor
 
 	tlsField := NewCheckboxField("Enabled", !settings.DisableTLS)
 	tlsField.SetDisabledWhen(func() (bool, string) {
-		if docker.IsLocalhost(hostnameField.Value()) {
+		// The field holds a comma-separated list, and Validate guarantees its
+		// hostnames are either all localhost or all public.
+		if docker.IsLocalhost(docker.ApplicationSettings{Host: hostnameField.Value()}.PrimaryHost()) {
 			return true, "Not available for localhost"
 		}
 		return false, ""

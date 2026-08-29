@@ -106,7 +106,7 @@ func (n *Namespace) Applications() []*Application {
 
 func (n *Namespace) ApplicationByHost(host string) *Application {
 	for _, app := range n.applications {
-		if app.Settings.Host == host {
+		if slices.Contains(app.Settings.Hosts(), host) {
 			return app
 		}
 	}
@@ -119,7 +119,7 @@ func (n *Namespace) HostInUse(host string) bool {
 
 func (n *Namespace) HostInUseByAnother(host string, excludeApp string) bool {
 	for _, app := range n.applications {
-		if app.Settings.Host == host && app.Settings.Name != excludeApp {
+		if slices.Contains(app.Settings.Hosts(), host) && app.Settings.Name != excludeApp {
 			return true
 		}
 	}
@@ -231,8 +231,10 @@ func (n *Namespace) Restore(ctx context.Context, r io.ReadSeeker) (*Application,
 		return nil, fmt.Errorf("parsing backup: %w", err)
 	}
 
-	if n.HostInUse(appSettings.Host) {
-		return nil, ErrHostnameInUse
+	for _, host := range appSettings.Hosts() {
+		if n.HostInUse(host) {
+			return nil, ErrHostnameInUse
+		}
 	}
 
 	name, err := n.UniqueName(NameFromImageRef(appSettings.Image))

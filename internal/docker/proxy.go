@@ -54,10 +54,11 @@ func (s ProxySettings) Marshal() string {
 }
 
 type DeployOptions struct {
-	AppName string
-	Target  string
-	Host    string
-	TLS     bool
+	AppName       string
+	Target        string
+	Hosts         []string
+	CanonicalHost string
+	TLS           bool
 }
 
 type Proxy struct {
@@ -219,8 +220,12 @@ func (p *Proxy) ensureRunning(ctx context.Context, info container.InspectRespons
 func (p *Proxy) deployArgs(opts DeployOptions) []string {
 	args := []string{"kamal-proxy", "deploy", opts.AppName, "--target", opts.Target, "--deploy-timeout", deployTimeout}
 
-	if opts.Host != "" {
-		args = append(args, "--host", opts.Host)
+	for _, host := range opts.Hosts {
+		args = append(args, "--host", host)
+	}
+
+	if opts.CanonicalHost != "" {
+		args = append(args, "--canonical-host", opts.CanonicalHost)
 	}
 
 	if opts.TLS {

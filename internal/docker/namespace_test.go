@@ -50,6 +50,24 @@ func TestApplicationByHost(t *testing.T) {
 	assert.Nil(t, ns.ApplicationByHost("missing.localhost"))
 }
 
+func TestApplicationByHostMatchesAnyHost(t *testing.T) {
+	ns := &Namespace{name: "test"}
+	ns.applications = append(ns.applications,
+		NewApplication(ns, ApplicationSettings{Name: "app1", Host: "app1.example.com,www.app1.example.com"}),
+	)
+
+	for _, host := range []string{"app1.example.com", "www.app1.example.com"} {
+		app := ns.ApplicationByHost(host)
+		require.NotNil(t, app)
+		assert.Equal(t, "app1", app.Settings.Name)
+	}
+
+	assert.Nil(t, ns.ApplicationByHost("app1.example.com,www.app1.example.com"))
+	assert.True(t, ns.HostInUse("www.app1.example.com"))
+	assert.True(t, ns.HostInUseByAnother("www.app1.example.com", "app2"))
+	assert.False(t, ns.HostInUseByAnother("www.app1.example.com", "app1"))
+}
+
 func TestHostInUse(t *testing.T) {
 	ns := &Namespace{name: "test"}
 	ns.applications = append(ns.applications,

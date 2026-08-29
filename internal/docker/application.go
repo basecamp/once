@@ -20,16 +20,18 @@ import (
 )
 
 var (
-	ErrApplicationExists     = errors.New("application already exists")
-	ErrHostnameInUse         = errors.New("hostname already in use")
-	ErrHostRequired          = errors.New("host is required")
-	ErrInvalidBackup         = errors.New("invalid backup archive")
-	ErrImageRequired         = errors.New("image is required")
-	ErrApplicationNotRunning = errors.New("the application is not running")
-	ErrBackupPathRelative    = errors.New("backup path must be absolute")
-	ErrAutoBackupWithoutPath = errors.New("auto-backup requires a backup path")
-	ErrSetupFailed           = errors.New("setup failed")
-	ErrPullFailed            = &describedError{
+	ErrApplicationExists      = errors.New("application already exists")
+	ErrHostnameInUse          = errors.New("hostname already in use")
+	ErrHostRequired           = errors.New("host is required")
+	ErrInvalidBackup          = errors.New("invalid backup archive")
+	ErrImageRequired          = errors.New("image is required")
+	ErrApplicationNotRunning  = errors.New("the application is not running")
+	ErrBackupPathRelative     = errors.New("backup path must be absolute")
+	ErrAutoBackupWithoutPath  = errors.New("auto-backup requires a backup path")
+	ErrMixedLocalhostHosts    = errors.New("hosts must be all localhost or all public: TLS applies to every hostname an app serves")
+	ErrCanonicalHostNotServed = errors.New("canonical host must be one of the application's hostnames")
+	ErrSetupFailed            = errors.New("setup failed")
+	ErrPullFailed             = &describedError{
 		msg:         "pull failed",
 		description: "Failed to download the application image. Check that the image name is correct and try again.",
 	}
@@ -108,7 +110,7 @@ func (a *Application) URL() string {
 		defaultPort = 443
 	}
 
-	base := scheme + "://" + a.Settings.Host
+	base := scheme + "://" + a.Settings.DisplayHost()
 
 	if a.namespace == nil {
 		return base
@@ -379,10 +381,11 @@ func (a *Application) deployWithVolume(ctx context.Context, vol *ApplicationVolu
 	shortContainerID := resp.ID[:12]
 
 	if err := a.namespace.Proxy().Deploy(ctx, DeployOptions{
-		AppName: a.Settings.Name,
-		Target:  shortContainerID,
-		Host:    a.Settings.Host,
-		TLS:     a.Settings.TLSEnabled(),
+		AppName:       a.Settings.Name,
+		Target:        shortContainerID,
+		Hosts:         a.Settings.Hosts(),
+		CanonicalHost: a.Settings.CanonicalHost,
+		TLS:           a.Settings.TLSEnabled(),
 	}); err != nil {
 		a.namespace.client.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true})
 		if strings.Contains(err.Error(), "target not healthy") || strings.Contains(err.Error(), "deploy timed out") {
