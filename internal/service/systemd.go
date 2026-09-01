@@ -33,6 +33,10 @@ func (s *Systemd) IsInstalled(name string) bool {
 	return err == nil
 }
 
+func (s *Systemd) IsRunning(ctx context.Context, name string) bool {
+	return exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", name).Run() == nil
+}
+
 func (s *Systemd) Install(ctx context.Context, name, execPath, namespace string) error {
 	path := s.unitFilePath(name)
 

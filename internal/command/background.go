@@ -15,6 +15,7 @@ func newBackgroundCommand() *backgroundCommand {
 
 	b.cmd.AddCommand(newBackgroundInstallCommand().cmd)
 	b.cmd.AddCommand(newBackgroundUninstallCommand().cmd)
+	b.cmd.AddCommand(newBackgroundStatusCommand().cmd)
 	b.cmd.AddCommand(newBackgroundRunCommand().cmd)
 
 	return b
