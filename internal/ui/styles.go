@@ -11,7 +11,7 @@ import (
 // Colors is the active palette. It is initialized with a default palette
 // at package init and may be replaced by ApplyPalette after terminal
 // color detection.
-var Colors = DefaultPalette()
+var Colors = defaultPalette()
 
 type styles struct {
 	Title         lipgloss.Style
