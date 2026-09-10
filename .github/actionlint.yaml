@@ -1,0 +1,9 @@
+# actionlint's rules for this repository. See https://github.com/rhysd/actionlint/blob/main/docs/config.md
+paths:
+  .github/workflows/**/*.yml:
+    ignore:
+      # GitHub's self-repository `uses: $/...` syntax (July 2026) is what zizmor's
+      # self-repository audit asks for in place of `./...`, and what our reusable-workflow
+      # calls use. actionlint 1.7.12 predates it and has no release that knows it
+      # (rhysd/actionlint#711); drop this once one does.
+      - 'reusable workflow call "\$/.+" at "uses" is not following the format'
