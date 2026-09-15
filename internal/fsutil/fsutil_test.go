@@ -84,11 +84,13 @@ func TestOpenFile_NewDirPermissionsFollowTheFile(t *testing.T) {
 			info, err := os.Stat(dir)
 			require.NoError(t, err)
 			assert.Equal(t, want, info.Mode().Perm(), dir)
+			require.NoError(t, os.Chmod(dir, 0o700)) // so t.TempDir can clean up
 		}
 	}
 
 	assertDirPerm(0o644, 0o755)
 	assertDirPerm(0o600, 0o700)
+	assertDirPerm(0o200, 0o300)
 }
 
 func TestCreateFile_NewDirIsOwnerOnly(t *testing.T) {

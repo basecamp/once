@@ -48,10 +48,11 @@ func CreateFile(path string) (*os.File, error) {
 // Helpers
 
 // dirPerm is the mode for a directory created to hold a file of mode perm:
-// the same bits, plus search wherever there is read. A 0600 file gets a 0700
-// directory, so an owner-only file is not listed to everyone else.
+// the same bits, plus search wherever there is read or write. A 0600 file gets
+// a 0700 directory, so an owner-only file is not listed to everyone else, and
+// a write-only 0200 file still gets a directory its owner can traverse.
 func dirPerm(perm os.FileMode) os.FileMode {
-	return perm | (perm&0o444)>>2
+	return perm | (perm&0o444)>>2 | (perm&0o222)>>1
 }
 
 func findOwnership(dir string) (int, int, error) {
