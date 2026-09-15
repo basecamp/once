@@ -8,7 +8,8 @@ import (
 )
 
 // OpenFile behaves like os.OpenFile, except that:
-//  1. Any missing parent directories in the path are created implicitly
+//  1. Any missing parent directories in the path are created implicitly,
+//     readable by whoever the file itself is readable by
 //  2. Ownership of the file (and any created parent directories) are set to
 //     match that of the nearest existing ancestor.
 func OpenFile(path string, flag int, perm os.FileMode) (*os.File, error) {
@@ -19,7 +20,7 @@ func OpenFile(path string, flag int, perm os.FileMode) (*os.File, error) {
 		return nil, fmt.Errorf("determining ownership for %s: %w", dir, err)
 	}
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, dirPerm(perm)); err != nil {
 		return nil, fmt.Errorf("creating directory %s: %w", dir, err)
 	}
 
@@ -45,6 +46,14 @@ func CreateFile(path string) (*os.File, error) {
 }
 
 // Helpers
+
+// dirPerm is the mode for a directory created to hold a file of mode perm:
+// the same bits, plus search wherever there is read or write. A 0600 file gets
+// a 0700 directory, so an owner-only file is not listed to everyone else, and
+// a write-only 0200 file still gets a directory its owner can traverse.
+func dirPerm(perm os.FileMode) os.FileMode {
+	return perm | (perm&0o444)>>2 | (perm&0o222)>>1
+}
 
 func findOwnership(dir string) (int, int, error) {
 	for path := dir; ; path = filepath.Dir(path) {
