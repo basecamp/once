@@ -133,52 +133,6 @@ func TestKeysSetVAPIDKey(t *testing.T) {
 	})
 }
 
-func TestBuildEnvWithSMTP(t *testing.T) {
-	settings := ApplicationSettings{
-		SMTP: SMTPSettings{
-			Server:   "smtp.example.com",
-			Port:     "587",
-			Username: "user@example.com",
-			Password: "secret",
-			From:     "noreply@example.com",
-		},
-	}
-
-	env := settings.BuildEnv()
-
-	assert.Contains(t, env, "SMTP_ADDRESS=smtp.example.com")
-	assert.Contains(t, env, "SMTP_PORT=587")
-	assert.Contains(t, env, "SMTP_USERNAME=user@example.com")
-	assert.Contains(t, env, "SMTP_PASSWORD=secret")
-	assert.Contains(t, env, "MAILER_FROM_ADDRESS=noreply@example.com")
-}
-
-func TestBuildEnvWithCPULimit(t *testing.T) {
-	settings := ApplicationSettings{Resources: ContainerResources{CPUs: 4}}
-
-	env := settings.BuildEnv()
-
-	assert.Contains(t, env, "NUM_CPUS=4")
-}
-
-func TestBuildEnvWithoutCPULimit(t *testing.T) {
-	settings := ApplicationSettings{}
-
-	env := settings.BuildEnv()
-
-	assert.NotContains(t, env, "NUM_CPUS=0")
-}
-
-func TestBuildEnvWithoutSMTP(t *testing.T) {
-	settings := ApplicationSettings{}
-
-	env := settings.BuildEnv()
-
-	for _, e := range env {
-		assert.NotContains(t, e, "SMTP_")
-	}
-}
-
 func TestContainerResourcesEqualDiffers(t *testing.T) {
 	base := ApplicationSettings{Name: "app", Resources: ContainerResources{CPUs: 1, MemoryMB: 512}}
 
@@ -265,36 +219,6 @@ func TestEnsureKeys(t *testing.T) {
 	})
 }
 
-func TestBuildEnvWithKeys(t *testing.T) {
-	settings := ApplicationSettings{
-		Keys: Keys{
-			SecretKeyBase:   "test-secret-key",
-			VAPIDPublicKey:  "test-vapid-public",
-			VAPIDPrivateKey: "test-vapid-private",
-		},
-	}
-
-	env := settings.BuildEnv()
-
-	assert.Contains(t, env, "SECRET_KEY_BASE=test-secret-key")
-	assert.Contains(t, env, "VAPID_PUBLIC_KEY=test-vapid-public")
-	assert.Contains(t, env, "VAPID_PRIVATE_KEY=test-vapid-private")
-}
-
-func TestBuildEnvWithEnvVars(t *testing.T) {
-	settings := ApplicationSettings{
-		EnvVars: map[string]string{
-			"DB_HOST": "postgres.local",
-			"DB_NAME": "mydb",
-		},
-	}
-
-	env := settings.BuildEnv()
-
-	assert.Contains(t, env, "DB_HOST=postgres.local")
-	assert.Contains(t, env, "DB_NAME=mydb")
-}
-
 func TestEnvVarsMarshalRoundTrip(t *testing.T) {
 	original := ApplicationSettings{
 		Name:  "app",
@@ -375,17 +299,6 @@ func TestRegistrySettingsMarshalRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, original.Registry, restored.Registry)
 	assert.True(t, original.Equal(restored))
-}
-
-func TestBuildEnvExcludesRegistryCredentials(t *testing.T) {
-	settings := ApplicationSettings{
-		Registry: RegistrySettings{Host: "docker.io", Username: "registry-user", Password: "registry-pass"},
-	}
-
-	for _, e := range settings.BuildEnv() {
-		assert.NotContains(t, e, "registry-user")
-		assert.NotContains(t, e, "registry-pass")
-	}
 }
 
 func TestAutoUpdateAndBackupMarshalRoundTrip(t *testing.T) {

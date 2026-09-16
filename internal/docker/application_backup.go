@@ -281,7 +281,7 @@ func (a *Application) runRestoreHook(ctx context.Context, vol *ApplicationVolume
 			Image:      a.Settings.Image,
 			Entrypoint: []string{},
 			Cmd:        []string{"sleep", "infinity"},
-			Env:        a.Settings.BuildEnv(),
+			Env:        a.BuildEnv(),
 		},
 		HostConfig: &container.HostConfig{Mounts: a.volumeMounts(vol)},
 	})

@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 )
 
@@ -171,30 +170,6 @@ func (s ApplicationSettings) Equal(other ApplicationSettings) bool {
 		}
 	}
 	return true
-}
-
-func (s ApplicationSettings) BuildEnv() []string {
-	env := []string{
-		"SECRET_KEY_BASE=" + s.Keys.SecretKeyBase,
-		"VAPID_PUBLIC_KEY=" + s.Keys.VAPIDPublicKey,
-		"VAPID_PRIVATE_KEY=" + s.Keys.VAPIDPrivateKey,
-	}
-
-	if !s.TLSEnabled() {
-		env = append(env, "DISABLE_SSL=true")
-	}
-
-	if s.Resources.CPUs > 0 {
-		env = append(env, "NUM_CPUS="+strconv.Itoa(s.Resources.CPUs))
-	}
-
-	env = append(env, s.SMTP.BuildEnv()...)
-
-	for k, v := range s.EnvVars {
-		env = append(env, k+"="+v)
-	}
-
-	return env
 }
 
 // Helpers
