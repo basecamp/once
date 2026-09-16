@@ -344,7 +344,7 @@ func (a *Application) deployWithVolume(ctx context.Context, vol *ApplicationVolu
 		return err
 	}
 
-	env := a.Settings.BuildEnv()
+	env := a.BuildEnv()
 
 	hostConfig := &container.HostConfig{
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyAlways},
@@ -472,6 +472,36 @@ func (a *Application) volumeMounts(vol *ApplicationVolume) []mount.Mount {
 		})
 	}
 	return mounts
+}
+
+func (a *Application) BuildEnv() []string {
+	s := a.Settings
+
+	env := []string{
+		"SECRET_KEY_BASE=" + s.Keys.SecretKeyBase,
+		"VAPID_PUBLIC_KEY=" + s.Keys.VAPIDPublicKey,
+		"VAPID_PRIVATE_KEY=" + s.Keys.VAPIDPrivateKey,
+	}
+
+	if !s.TLSEnabled() {
+		env = append(env, "DISABLE_SSL=true")
+	}
+
+	if s.Resources.CPUs > 0 {
+		env = append(env, "NUM_CPUS="+strconv.Itoa(s.Resources.CPUs))
+	}
+
+	if url := a.URL(); url != "" {
+		env = append(env, "BASE_URL="+url)
+	}
+
+	env = append(env, s.SMTP.BuildEnv()...)
+
+	for k, v := range s.EnvVars {
+		env = append(env, k+"="+v)
+	}
+
+	return env
 }
 
 func (a *Application) containerConfig(env []string) *container.Config {

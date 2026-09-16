@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -134,4 +135,122 @@ func TestURL(t *testing.T) {
 		app := newAppWithProxy("chat.localhost", false, &ProxySettings{HTTPPort: 9090})
 		assert.Equal(t, "http://chat.localhost:9090", app.URL())
 	})
+}
+
+func TestBuildEnvWithSMTP(t *testing.T) {
+	settings := ApplicationSettings{
+		SMTP: SMTPSettings{
+			Server:   "smtp.example.com",
+			Port:     "587",
+			Username: "user@example.com",
+			Password: "secret",
+			From:     "noreply@example.com",
+		},
+	}
+
+	env := (&Application{Settings: settings}).BuildEnv()
+
+	assert.Contains(t, env, "SMTP_ADDRESS=smtp.example.com")
+	assert.Contains(t, env, "SMTP_PORT=587")
+	assert.Contains(t, env, "SMTP_USERNAME=user@example.com")
+	assert.Contains(t, env, "SMTP_PASSWORD=secret")
+	assert.Contains(t, env, "MAILER_FROM_ADDRESS=noreply@example.com")
+}
+
+func TestBuildEnvWithCPULimit(t *testing.T) {
+	settings := ApplicationSettings{Resources: ContainerResources{CPUs: 4}}
+
+	env := (&Application{Settings: settings}).BuildEnv()
+
+	assert.Contains(t, env, "NUM_CPUS=4")
+}
+
+func TestBuildEnvWithoutCPULimit(t *testing.T) {
+	settings := ApplicationSettings{}
+
+	env := (&Application{Settings: settings}).BuildEnv()
+
+	assert.NotContains(t, env, "NUM_CPUS=0")
+}
+
+func TestBuildEnvWithBaseURL(t *testing.T) {
+	settings := ApplicationSettings{Host: "app.example.com"}
+
+	env := (&Application{Settings: settings}).BuildEnv()
+
+	assert.Contains(t, env, "BASE_URL=https://app.example.com")
+}
+
+func TestBuildEnvWithoutBaseURL(t *testing.T) {
+	settings := ApplicationSettings{}
+
+	for _, e := range (&Application{Settings: settings}).BuildEnv() {
+		assert.NotContains(t, e, "BASE_URL=")
+	}
+}
+
+func TestBuildEnvCustomBaseURLOverridesGenerated(t *testing.T) {
+	settings := ApplicationSettings{
+		Host:    "app.example.com",
+		EnvVars: map[string]string{"BASE_URL": "https://custom.example.com"},
+	}
+
+	env := (&Application{Settings: settings}).BuildEnv()
+
+	generated := slices.Index(env, "BASE_URL=https://app.example.com")
+	custom := slices.Index(env, "BASE_URL=https://custom.example.com")
+	assert.NotEqual(t, -1, generated)
+	assert.NotEqual(t, -1, custom)
+	assert.Greater(t, custom, generated)
+}
+
+func TestBuildEnvWithoutSMTP(t *testing.T) {
+	settings := ApplicationSettings{}
+
+	env := (&Application{Settings: settings}).BuildEnv()
+
+	for _, e := range env {
+		assert.NotContains(t, e, "SMTP_")
+	}
+}
+
+func TestBuildEnvWithKeys(t *testing.T) {
+	settings := ApplicationSettings{
+		Keys: Keys{
+			SecretKeyBase:   "test-secret-key",
+			VAPIDPublicKey:  "test-vapid-public",
+			VAPIDPrivateKey: "test-vapid-private",
+		},
+	}
+
+	env := (&Application{Settings: settings}).BuildEnv()
+
+	assert.Contains(t, env, "SECRET_KEY_BASE=test-secret-key")
+	assert.Contains(t, env, "VAPID_PUBLIC_KEY=test-vapid-public")
+	assert.Contains(t, env, "VAPID_PRIVATE_KEY=test-vapid-private")
+}
+
+func TestBuildEnvWithEnvVars(t *testing.T) {
+	settings := ApplicationSettings{
+		EnvVars: map[string]string{
+			"DB_HOST": "postgres.local",
+			"DB_NAME": "mydb",
+		},
+	}
+
+	env := (&Application{Settings: settings}).BuildEnv()
+
+	assert.Contains(t, env, "DB_HOST=postgres.local")
+	assert.Contains(t, env, "DB_NAME=mydb")
+}
+
+func TestBuildEnvExcludesRegistryCredentials(t *testing.T) {
+	settings := ApplicationSettings{
+		Registry: RegistrySettings{Host: "docker.io", Username: "registry-user", Password: "registry-pass"},
+	}
+
+	for _, e := range (&Application{Settings: settings}).BuildEnv() {
+		assert.NotContains(t, e, "registry-user")
+		assert.NotContains(t, e, "registry-pass")
+	}
 }
