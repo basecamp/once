@@ -1,6 +1,6 @@
 module github.com/basecamp/once-installer
 
-go 1.26.7
+go 1.27.0
 
 require (
 	github.com/distribution/reference v0.6.0
