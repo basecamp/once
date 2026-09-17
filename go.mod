@@ -14,7 +14,7 @@ require (
 	github.com/distribution/reference v0.6.0
 	github.com/google/go-containerregistry v0.22.1
 	github.com/lucasb-eyer/go-colorful v1.4.1
-	github.com/mattn/go-runewidth v0.0.29
+	github.com/mattn/go-runewidth v0.0.30
 	github.com/moby/moby/api v1.56.0
 	github.com/moby/moby/client v0.6.0
 	github.com/prometheus/client_model v0.6.3
