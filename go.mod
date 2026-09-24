@@ -6,7 +6,7 @@ require (
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.0.9
 	charm.land/lipgloss/v2 v2.0.6
-	github.com/axiomhq/hyperloglog v0.2.6
+	github.com/axiomhq/hyperloglog v0.3.0
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/charmbracelet/x/term v0.2.2
@@ -14,7 +14,7 @@ require (
 	github.com/distribution/reference v0.6.0
 	github.com/google/go-containerregistry v0.22.1
 	github.com/lucasb-eyer/go-colorful v1.4.1
-	github.com/mattn/go-runewidth v0.0.29
+	github.com/mattn/go-runewidth v0.0.30
 	github.com/moby/moby/api v1.56.0
 	github.com/moby/moby/client v0.6.0
 	github.com/prometheus/client_model v0.6.3
