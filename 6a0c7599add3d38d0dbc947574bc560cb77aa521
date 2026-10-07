@@ -1,0 +1,14 @@
+.dockerignore
+  h_7c48a88bf05c0d 1-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "6a0c7599add3d38d0dbc947574bc560cb77aa521",
+  "prompts": {},
+  "humans": {
+    "h_7c48a88bf05c0d": {
+      "author": "Jeremy Daer <jeremy@37signals.com>"
+    }
+  }
+}
