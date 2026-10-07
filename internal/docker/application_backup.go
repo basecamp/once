@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -52,6 +53,10 @@ func (a *Application) BackupToFile(ctx context.Context, dir string, name string)
 
 	filePath := filepath.Join(dir, name)
 	file, err := fsutil.CreateFile(filePath)
+	if errors.Is(err, fs.ErrExist) {
+		slog.Error("Backup file already exists", "app", a.Settings.Name, "filename", filePath)
+		return fmt.Errorf("%w: %s (backups never overwrite an existing file; choose a new filename, or move the existing file aside first)", ErrBackupFileExists, filePath)
+	}
 	if err != nil {
 		slog.Error("Failed to create backup file", "app", a.Settings.Name, "filename", filePath, "error", err)
 		return fmt.Errorf("creating backup file: %w", err)

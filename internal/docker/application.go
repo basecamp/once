@@ -26,6 +26,7 @@ var (
 	ErrImageRequired         = errors.New("image is required")
 	ErrApplicationNotRunning = errors.New("the application is not running")
 	ErrBackupPathRelative    = errors.New("backup path must be absolute")
+	ErrBackupFileExists      = errors.New("backup file already exists")
 	ErrAutoBackupWithoutPath = errors.New("auto-backup requires a backup path")
 	ErrSetupFailed           = errors.New("setup failed")
 	ErrPullFailed            = &describedError{

@@ -18,7 +18,7 @@ func newBackupCommand() *backupCommand {
 	b := &backupCommand{}
 	b.cmd = &cobra.Command{
 		Use:   "backup <host> <filename>",
-		Short: "Backup an application to a file",
+		Short: "Backup an application to a new file",
 		Args:  cobra.ExactArgs(2),
 		RunE:  WithNamespace(b.run),
 	}

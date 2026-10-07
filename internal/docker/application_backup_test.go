@@ -28,6 +28,21 @@ func TestBackupToFile_RelativePath(t *testing.T) {
 	require.ErrorIs(t, err, ErrBackupPathRelative)
 }
 
+func TestBackupToFile_ExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "backup.tar.gz")
+	require.NoError(t, os.WriteFile(path, []byte("previous"), 0o600))
+
+	app := &Application{Settings: ApplicationSettings{Name: "chat"}}
+	err := app.BackupToFile(context.Background(), dir, "backup.tar.gz")
+	require.ErrorIs(t, err, ErrBackupFileExists)
+	assert.Contains(t, err.Error(), path)
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "previous", string(content))
+}
+
 func TestBackup_EmptyPath(t *testing.T) {
 	app := &Application{Settings: ApplicationSettings{Name: "chat"}}
 	err := app.Backup(context.Background())
