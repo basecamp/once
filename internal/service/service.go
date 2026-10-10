@@ -8,6 +8,7 @@ import (
 
 type Service interface {
 	IsInstalled(name string) bool
+	IsRunning(ctx context.Context, name string) bool
 	Install(ctx context.Context, name, execPath, namespace string) error
 	Remove(ctx context.Context, name string) error
 	ServiceName(name string) string
