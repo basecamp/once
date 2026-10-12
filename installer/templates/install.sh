@@ -7,6 +7,17 @@ IMAGE_REF='{{ .ImageRef }}'
 RELEASE_JSON=''
 ONCE_BIN=''
 
+# The public keys that sign each release's release.txt. A release installs
+# only when one of them verifies it. This must match release-key.pub at the
+# root of the once repository byte for byte; installer/main_test.go checks.
+RELEASE_KEYS='PLACEHOLDER - this is not a key, and nothing verifies against it.
+
+Replace this whole file with the PEM public key (or keys) that sign
+release.txt, and paste the same text into internal/version/release_keys.go
+and installer/templates/install.sh. Until then every self-update and every
+install from get.once.com refuses to proceed.
+'
+
 main() {
   os=$(detect_os)
   arch=$(detect_arch)
@@ -103,15 +114,30 @@ install_once() {
     exit 1
   fi
 
-  tmpfile=$(mktemp)
-  download "$asset_url" "$tmpfile" "application/octet-stream"
+  require_openssl
+
+  manifest_url=$(get_asset_url "release.txt")
+  signature_url=$(get_asset_url "release.txt.sig")
+  if [ -z "$manifest_url" ] || [ -z "$signature_url" ]; then
+    echo "Release ${version} is not signed (it has no release.txt and release.txt.sig), so it was not installed." >&2
+    exit 1
+  fi
+
+  workdir=$(mktemp -d)
+  trap 'rm -rf "$workdir"' EXIT
+  download "$manifest_url" "${workdir}/release.txt" "application/octet-stream"
+  download "$signature_url" "${workdir}/release.txt.sig" "application/octet-stream"
+  download "$asset_url" "${workdir}/${binary}" "application/octet-stream"
+
+  verify_release "$workdir" "$version" "$binary"
 
   if is_root; then
-    install -m 755 "$tmpfile" "${INSTALL_DIR}/once"
+    install -m 755 "${workdir}/${binary}" "${INSTALL_DIR}/once"
   else
-    sudo install -m 755 "$tmpfile" "${INSTALL_DIR}/once"
+    sudo install -m 755 "${workdir}/${binary}" "${INSTALL_DIR}/once"
   fi
-  rm -f "$tmpfile"
+  rm -rf "$workdir"
+  trap - EXIT
 
   ONCE_BIN="${INSTALL_DIR}/once"
   echo "Installed once to ${ONCE_BIN}"
@@ -161,6 +187,64 @@ get_asset_url() {
         }
         /"name":/ && index($0, "\"" binary "\"") { print u; exit }
     '
+}
+
+require_openssl() {
+  if ! command -v openssl >/dev/null 2>&1; then
+    echo "once needs openssl to verify the release before installing it, and openssl was not found." >&2
+    echo "Install it (for example: sudo apt-get install openssl, or sudo dnf install openssl) and run this again." >&2
+    exit 1
+  fi
+}
+
+# verify_release DIR VERSION BINARY checks that DIR/release.txt is signed by
+# one of RELEASE_KEYS, names VERSION, and lists the SHA-256 of DIR/BINARY.
+# It exits on any failure, so nothing unverified is installed.
+verify_release() {
+  dir="$1"
+  version="$2"
+  binary="$3"
+
+  printf '%s\n' "$RELEASE_KEYS" | awk -v dir="$dir" '
+    /^-----BEGIN PUBLIC KEY-----$/ { n++; file = dir "/release-key-" n ".pem" }
+    file { print > file }
+    /^-----END PUBLIC KEY-----$/ { close(file); file = "" }
+  '
+
+  verified=''
+  for key in "$dir"/release-key-*.pem; do
+    [ -f "$key" ] || continue
+    if openssl dgst -sha256 -verify "$key" -signature "${dir}/release.txt.sig" "${dir}/release.txt" >/dev/null 2>&1; then
+      verified=1
+      break
+    fi
+  done
+  if [ -z "$verified" ]; then
+    echo "The signature on release ${version} did not verify against the once release key, so it was not installed." >&2
+    exit 1
+  fi
+
+  if [ "$(sed -n 1p "${dir}/release.txt")" != "once ${version}" ]; then
+    echo "The signed release.txt is not for ${version}, so it was not installed." >&2
+    exit 1
+  fi
+
+  expected=$(awk -v binary="$binary" 'NR > 2 && NF == 2 && $2 == binary { print $1; exit }' "${dir}/release.txt")
+  actual=$(sha256 "${dir}/${binary}")
+  if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+    echo "The downloaded ${binary} does not match the signed checksum, so it was not installed." >&2
+    exit 1
+  fi
+}
+
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{ print $1 }'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{ print $1 }'
+  else
+    openssl dgst -sha256 "$1" | awk '{ print $NF }'
+  fi
 }
 
 download() {

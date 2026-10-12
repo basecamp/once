@@ -1,40 +1,248 @@
 name: Release
 
+# A release is made by dispatching this workflow on main with the version to
+# release. Nothing else makes one: a tag push no longer does.
+#
+# Every release carries release.txt -- the version, the commit, and the SHA-256
+# of each binary -- and release.txt.sig, an ECDSA P-256 signature over it. The
+# self-updater and the get.once.com installer install a binary only when that
+# signature verifies against a public key built into them (release-key.pub),
+# so a release made any other way installs nowhere.
+#
+# The private key exists only as the ONCE_RELEASE_SIGNING_KEY secret of the
+# `release` environment, which admits main alone and waits for a reviewer.
+# The jobs each hold one privilege:
+#
+#   gate     read-only. Main, a well-formed version, no such tag or release
+#            yet, and (unless a draft) newer than the latest release.
+#   ci       the usual CI on this commit.
+#   build    read-only, no secrets, no cache. `make dist` at this commit.
+#   sign     the `release` environment, so the key; runs no repository code.
+#            Checks the binaries against release.txt, signs it, and checks the
+#            signature against the committed public key.
+#   publish  contents: write, no key, checks nothing out. Uploads everything
+#            to a draft, reads it back, and publishes it as latest -- which
+#            creates the tag at this commit. With draft: true it stops at the
+#            draft, so a test release is never tagged and never latest.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version to release, as its tag (vMAJOR.MINOR.PATCH; a draft must carry a suffix, e.g. v0.0.1-test)
+        required: true
+        type: string
+      draft:
+        description: Stop at a signed draft that is never published
+        required: false
+        type: boolean
+        default: false
+
 permissions: {}
 
-on:
-  push:
-    tags: [ "v*" ]
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
+  gate:
+    name: Release gate
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read # the repository's tags and releases
+    steps:
+    - name: Check this is main, a new version, and nothing of that name exists
+      env:
+        GH_TOKEN: ${{ github.token }}
+        VERSION: ${{ inputs.version }}
+        DRAFT: ${{ inputs.draft }}
+      run: |
+        set -euo pipefail
+
+        [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::releases are made from main only"; exit 1; }
+
+        if [ "$DRAFT" = true ]; then
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+$ ]] || { echo "::error::a draft's version needs a suffix, e.g. v0.0.1-test"; exit 1; }
+        else
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::$VERSION is not vMAJOR.MINOR.PATCH"; exit 1; }
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          highest=$(printf '%s\n%s\n' "$latest" "$VERSION" | sort -V | tail -n 1)
+          if [ "$VERSION" = "$latest" ] || [ "$highest" != "$VERSION" ]; then
+            echo "::error::$VERSION is not newer than the latest release, $latest"
+            exit 1
+          fi
+        fi
+
+        # Only a 404 means there is no tag; any other failure to look is a failure.
+        if lookup=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" 2>&1); then
+          echo "::error::the tag $VERSION already exists"
+          exit 1
+        elif ! grep -q 'HTTP 404' <<< "$lookup"; then
+          echo "::error::could not tell whether the tag $VERSION exists: $lookup"
+          exit 1
+        fi
+
+        # Drafts included: several drafts can share a name.
+        existing=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name')
+        if grep -qxF -- "$VERSION" <<< "$existing"; then
+          echo "::error::a release or draft named $VERSION already exists"
+          exit 1
+        fi
+
   ci:
     name: CI
+    needs: gate
     uses: $/.github/workflows/ci.yml
     permissions:
-      contents: read
+      contents: read # the commit under test
 
-  release:
-    needs: [ci]
-    permissions:
-      contents: write
+  build:
+    name: Build
+    needs: [gate, ci]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read # the commit being released
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
+        ref: ${{ github.sha }}
         persist-credentials: false
 
     - name: Set up Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] -- cache is branch-isolated; fork PRs cannot write to this cache
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
+        # A cache any branch's run could have written is not an input a
+        # release should read.
+        cache: false
 
     - name: Build release artifacts
-      run: make dist
+      env:
+        VERSION: ${{ inputs.version }}
+      run: make dist VERSION="$VERSION"
 
-    - name: Create release
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: unsigned
+        path: dist/
+        if-no-files-found: error
+        retention-days: 1
+
+  sign:
+    name: Sign
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read # release-key.pub, at the commit being released
+    steps:
+    # The public key only. Nothing from the repository runs in this job.
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.sha }}
+        persist-credentials: false
+        sparse-checkout: release-key.pub
+        sparse-checkout-cone-mode: false
+
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: unsigned
+        path: dist
+
+    - name: Check the build is exactly this version, at this commit
+      env:
+        VERSION: ${{ inputs.version }}
+      working-directory: dist
+      run: |
+        set -euo pipefail
+        binaries=(once-darwin-amd64 once-darwin-arm64 once-linux-amd64 once-linux-arm64)
+        expected=$(printf '%s\n' checksums.txt release.txt "${binaries[@]}" | LC_ALL=C sort)
+        [ "$(find . -mindepth 1 -printf '%P\n' | LC_ALL=C sort)" = "$expected" ] || { echo "::error::the build handed over other files than expected"; exit 1; }
+        [ "$(sed -n 1p release.txt)" = "once $VERSION" ] || { echo "::error::release.txt does not name $VERSION"; exit 1; }
+        [ "$(sed -n 2p release.txt)" = "commit $GITHUB_SHA" ] || { echo "::error::release.txt does not name $GITHUB_SHA"; exit 1; }
+        [ "$(tail -n +3 release.txt | awk '{ print $2 }' | LC_ALL=C sort | xargs)" = "${binaries[*]}" ] || { echo "::error::release.txt does not list exactly the four binaries"; exit 1; }
+        tail -n +3 release.txt | sha256sum --check --strict
+
+    - name: Sign release.txt
+      env:
+        SIGNING_KEY: ${{ secrets.ONCE_RELEASE_SIGNING_KEY }}
+      run: |
+        set -euo pipefail
+        [ -n "$SIGNING_KEY" ] || { echo "::error::the release environment has no ONCE_RELEASE_SIGNING_KEY"; exit 1; }
+        umask 077
+        key="$RUNNER_TEMP/release-key.pem"
+        trap 'rm -f "$key"' EXIT
+        printf '%s\n' "$SIGNING_KEY" > "$key"
+        openssl dgst -sha256 -sign "$key" -out dist/release.txt.sig dist/release.txt
+
+    # Catches a secret that does not match the committed key before anything
+    # is published that no install would accept.
+    - name: Verify the signature against the committed public key
+      run: |
+        set -euo pipefail
+        mkdir "$RUNNER_TEMP/keys"
+        awk -v dir="$RUNNER_TEMP/keys" '
+          /^-----BEGIN PUBLIC KEY-----$/ { n++; file = dir "/" n ".pem" }
+          file { print > file }
+          /^-----END PUBLIC KEY-----$/ { close(file); file = "" }
+        ' release-key.pub
+        for key in "$RUNNER_TEMP"/keys/*.pem; do
+          [ -f "$key" ] || continue
+          if openssl dgst -sha256 -verify "$key" -signature dist/release.txt.sig dist/release.txt; then
+            exit 0
+          fi
+        done
+        echo "::error::the signature does not verify against release-key.pub; the signing key and the committed public key do not match"
+        exit 1
+
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: signed
+        path: dist/
+        if-no-files-found: error
+        retention-days: 1
+
+  publish:
+    name: Publish
+    needs: sign
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the draft release, and publish it
+    steps:
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: signed
+        path: dist
+
+    - name: Upload to a draft and read it back
       env:
         GH_TOKEN: ${{ github.token }}
-      run: >
-        gh release create "${GITHUB_REF_NAME}"
-        dist/*
-        --title "Release ${GITHUB_REF_NAME}"
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" \
+          --title "Release $VERSION" --notes "" dist/*
+        mkdir drafted
+        gh release download "$VERSION" --repo "$GITHUB_REPOSITORY" --dir drafted
+        if [ "$(cd dist && sha256sum -- * | LC_ALL=C sort)" != "$(cd drafted && sha256sum -- * | LC_ALL=C sort)" ]; then
+          echo "::error::the draft does not hold exactly what was signed; it stays a draft"
+          exit 1
+        fi
+
+    - name: Publish as the latest release
+      if: ${{ !inputs.draft }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        gh release edit "$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+        tagged=$(gh api -H 'Accept: application/vnd.github.sha' "repos/$GITHUB_REPOSITORY/commits/refs/tags/$VERSION")
+        if [ "$tagged" != "$GITHUB_SHA" ]; then
+          echo "::error::$VERSION is tagged at $tagged, not the built commit $GITHUB_SHA; check the release by hand"
+          exit 1
+        fi

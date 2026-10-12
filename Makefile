@@ -20,6 +20,7 @@ build-all:
 
 test:
 	go test ./internal/...
+	cd installer && go test ./...
 
 integration:
 	go test -v -count=1 -parallel 16 -timeout 30m ./integration/...
@@ -47,8 +48,15 @@ dist: build-all
 		done; \
 	done
 	cd dist && sha256sum once-* > checksums.txt
+	cd dist && { \
+		echo "once $(VERSION)"; \
+		echo "commit $$(git rev-parse HEAD)"; \
+		sha256sum once-*; \
+	} > release.txt
 
+# Runs the real release workflow on main as a draft: signed like any release,
+# but never published, never tagged, and never "latest". Signing waits for a
+# reviewer to approve the release environment, as it does for every release.
 test-release:
 	-gh release delete $(TEST_RELEASE_TAG) --yes --cleanup-tag
-	git tag -f $(TEST_RELEASE_TAG)
-	git push origin $(TEST_RELEASE_TAG) --force
+	gh workflow run release.yml --ref main -f version=$(TEST_RELEASE_TAG) -f draft=true
