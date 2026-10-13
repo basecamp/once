@@ -2,7 +2,10 @@ package ui
 
 import (
 	"image/color"
+	"log/slog"
 	"math"
+	"os"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -10,14 +13,15 @@ import (
 )
 
 // Palette holds all colors used by the UI. ANSI color fields always contain
-// BasicColor values so the terminal applies its own theme. Synthesized
-// colors (FocusOrange, BackgroundTint, LightText) are true-color RGB.
+// BasicColor values so the terminal applies its own theme. The synthesized
+// colors (FocusOrange, BackgroundTint, LightText) are true-color RGB when
+// the terminal supports it, or ANSI fallbacks otherwise.
 type Palette struct {
 	// ANSI 16 — always BasicColor values for rendering
 	Black, Red, Green, Yellow, Blue, Magenta, Cyan, White                                                 color.Color
 	BrightBlack, BrightRed, BrightGreen, BrightYellow, BrightBlue, BrightMagenta, BrightCyan, BrightWhite color.Color
 
-	// Synthesized (always true-color RGB)
+	// Synthesized (true-color RGB when supported, ANSI fallbacks otherwise)
 	FocusOrange    color.Color
 	BackgroundTint color.Color
 	LightText      color.Color
@@ -30,19 +34,29 @@ type Palette struct {
 	Error   color.Color // = Red
 	Success color.Color // = Green
 	Warning color.Color // = FocusOrange
-	// Private: detected RGB samples for calculations
-	samples  [sampleCount]colorful.Color
-	detected [sampleCount]bool
-	isDark   bool
+
+	isDark         bool
+	trueColor      bool
+	gradientGreen  colorful.Color
+	gradientOrange colorful.Color
 }
 
 // Gradient interpolates between green and FocusOrange in OKLCH.
-// t=0 returns green, t=1 returns orange.
+// t=0 returns green, t=1 returns orange. When true color is not
+// supported, the gradient is clamped to ANSI green/yellow/red.
 func (p *Palette) Gradient(t float64) color.Color {
 	t = max(0, min(1, t))
-	greenSample := p.samples[int(ansi.Green)]
-	orangeSample, _ := colorful.MakeColor(p.FocusOrange)
-	return greenSample.BlendOkLch(orangeSample, t)
+	if !p.trueColor {
+		switch {
+		case t < 0.33:
+			return p.Green
+		case t < 0.67:
+			return p.Yellow
+		default:
+			return p.Red
+		}
+	}
+	return p.gradientGreen.BlendOkLch(p.gradientOrange, t)
 }
 
 // HealthColor returns the palette color for the given health state.
@@ -57,9 +71,31 @@ func (p *Palette) HealthColor(h HealthState) color.Color {
 	}
 }
 
-// DefaultPalette returns a palette with ANSI BasicColor values and
-// fallback-derived synthesized colors. This is the package-init value.
-func DefaultPalette() *Palette {
+// SupportsTrueColor reports whether the terminal is likely to support
+// 24-bit color output.
+func (p *Palette) SupportsTrueColor() bool {
+	return p.trueColor
+}
+
+// Detect queries the terminal for colors and updates the palette
+// accordingly. If detection succeeds (all 18 colors received),
+// synthesized colors are computed from the detected RGB values.
+// If COLORTERM indicates true-color support, synthesized colors
+// are computed from fallback samples. Otherwise the ANSI defaults
+// from defaultPalette are kept.
+func (p *Palette) Detect(timeout time.Duration) {
+	colors, ok := DetectTerminalColors(timeout)
+	p.apply(colors, ok)
+
+	if !p.SupportsTrueColor() {
+		slog.Info("True color output is not enabled")
+	}
+}
+
+// defaultPalette returns a palette with ANSI BasicColor values for all
+// color fields. This is the starting point; Detect may upgrade the
+// synthesized colors to true-color RGB.
+func defaultPalette() *Palette {
 	p := &Palette{
 		Black:         lipgloss.Black,
 		Red:           lipgloss.Red,
@@ -77,41 +113,14 @@ func DefaultPalette() *Palette {
 		BrightMagenta: lipgloss.BrightMagenta,
 		BrightCyan:    lipgloss.BrightCyan,
 		BrightWhite:   lipgloss.BrightWhite,
-		isDark:        true,
+
+		FocusOrange: lipgloss.Red,
+		LightText:   lipgloss.BrightBlack,
+		Primary:     lipgloss.BrightBlue,
+
+		isDark: true,
 	}
-
-	p.samples = defaultSamples()
-	p.synthesize()
-	return p
-}
-
-// NewPalette creates a palette from detected terminal colors.
-func NewPalette(detected DetectedColors) *Palette {
-	p := DefaultPalette()
-
-	p.detected = detected.Detected
-	defaults := defaultSamples()
-
-	for i := range sampleCount {
-		if detected.Detected[i] {
-			p.samples[i] = detected.Colors[i]
-		} else {
-			p.samples[i] = defaults[i]
-		}
-	}
-
-	if detected.Detected[sampleBackground] {
-		l, _, _ := detected.Colors[sampleBackground].OkLch()
-		p.isDark = l < 0.5
-	}
-
-	p.Primary = pickPrimary(p)
-	p.synthesize()
-
-	if !detected.SupportsTrueColor() {
-		p.BackgroundTint = nil
-	}
-
+	p.setAliases()
 	return p
 }
 
@@ -124,21 +133,42 @@ func ApplyPalette(p *Palette) {
 
 // Private
 
-func (p *Palette) synthesize() {
-	p.FocusOrange = synthesizeOrange(p.samples[int(ansi.Blue)])
-	p.BackgroundTint = synthesizeTint(p.samples[sampleBackground])
+func (p *Palette) apply(colors detectedColors, ok bool) {
+	colorterm := os.Getenv("COLORTERM")
+	p.trueColor = ok || colorterm == "truecolor" || colorterm == "24bit"
+
+	if !p.trueColor {
+		return
+	}
+
+	var samples [sampleCount]colorful.Color
+	if ok {
+		samples = colors.Colors
+		l, _, _ := samples[sampleBackground].OkLch()
+		p.isDark = l < 0.5
+		p.Primary = pickPrimary(samples)
+	} else {
+		samples = defaultSamples()
+	}
+
+	p.FocusOrange = synthesizeOrange(samples[int(ansi.Blue)])
+	p.BackgroundTint = synthesizeTint(samples[sampleBackground])
 	p.LightText = synthesizeLightText(
-		p.samples[sampleBackground],
-		p.samples[sampleForeground],
-		p.samples[int(ansi.Blue)],
+		samples[sampleBackground],
+		samples[sampleForeground],
+		samples[int(ansi.Blue)],
 	)
 
+	p.gradientGreen = samples[int(ansi.Green)]
+	p.gradientOrange, _ = colorful.MakeColor(p.FocusOrange)
+
+	p.setAliases()
+}
+
+func (p *Palette) setAliases() {
 	p.Border = p.LightText
 	p.Muted = p.LightText
 	p.Focused = p.FocusOrange
-	if p.Primary == nil {
-		p.Primary = lipgloss.BrightBlue
-	}
 	p.Error = p.Red
 	p.Success = p.Green
 	p.Warning = p.FocusOrange
@@ -183,22 +213,11 @@ func synthesizeLightText(bg, fg, blue colorful.Color) color.Color {
 }
 
 // pickPrimary chooses the better of Blue and BrightBlue for contrast
-// against the background. Falls back to BrightBlue when detection is
-// incomplete.
-func pickPrimary(p *Palette) color.Color {
-	bothDetected := p.detected[int(ansi.Blue)] &&
-		p.detected[int(ansi.BrightBlue)] &&
-		p.detected[sampleBackground]
-
-	if !bothDetected {
-		return lipgloss.BrightBlue
-	}
-
-	bg := p.samples[sampleBackground]
-	bgL, _, _ := bg.OkLch()
-
-	blueL, _, _ := p.samples[int(ansi.Blue)].OkLch()
-	brightL, _, _ := p.samples[int(ansi.BrightBlue)].OkLch()
+// against the background.
+func pickPrimary(samples [sampleCount]colorful.Color) color.Color {
+	bgL, _, _ := samples[sampleBackground].OkLch()
+	blueL, _, _ := samples[int(ansi.Blue)].OkLch()
+	brightL, _, _ := samples[int(ansi.BrightBlue)].OkLch()
 
 	if math.Abs(brightL-bgL) >= math.Abs(blueL-bgL) {
 		return lipgloss.BrightBlue

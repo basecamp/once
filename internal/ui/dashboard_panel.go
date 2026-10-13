@@ -214,7 +214,7 @@ func (p DashboardPanel) renderVisitsCard(width int) string {
 }
 
 func (p DashboardPanel) renderTopTransition(selected bool, width int) string {
-	if !selected {
+	if !selected || Colors.BackgroundTint == nil {
 		return strings.Repeat(" ", width)
 	}
 	indicatorChar := lipgloss.NewStyle().Foreground(Colors.Focused).Render("▗")
@@ -223,7 +223,7 @@ func (p DashboardPanel) renderTopTransition(selected bool, width int) string {
 }
 
 func (p DashboardPanel) renderBottomTransition(selected bool, width int) string {
-	if !selected {
+	if !selected || Colors.BackgroundTint == nil {
 		return strings.Repeat(" ", width)
 	}
 	indicatorChar := lipgloss.NewStyle().Foreground(Colors.Focused).Render("▝")
