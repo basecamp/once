@@ -36,6 +36,14 @@ func WithApplications(apps ...ApplicationSettings) NamespaceOption {
 	}
 }
 
+// WithProxyImage sets the image the proxy is booted from, in place of
+// ProxyImage.
+func WithProxyImage(image string) NamespaceOption {
+	return func(ns *Namespace) {
+		ns.proxy.image = image
+	}
+}
+
 func NewNamespace(name string, opts ...NamespaceOption) (*Namespace, error) {
 	if name == "" {
 		name = DefaultNamespace

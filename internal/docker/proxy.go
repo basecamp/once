@@ -3,6 +3,7 @@ package docker
 import (
 	"archive/tar"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
@@ -19,7 +21,7 @@ import (
 )
 
 const (
-	ProxyImage = "basecamp/kamal-proxy:once-01"
+	ProxyImage = "basecamp/kamal-proxy:v0.10.3@sha256:0a66b4a1e719abd497c3bdcb15d9210882059688b67c4b7e76691201a785462e"
 	labelKey   = "once"
 )
 
@@ -34,6 +36,7 @@ const (
 	DefaultHTTPSPort   = 443
 	DefaultMetricsPort = 1318
 	deployTimeout      = "120s"
+	proxyReadyTimeout  = 30 * time.Second
 )
 
 type ProxySettings struct {
@@ -62,94 +65,61 @@ type DeployOptions struct {
 
 type Proxy struct {
 	namespace *Namespace
+	image     string
 	Settings  *ProxySettings
 }
 
 func NewProxy(ns *Namespace) *Proxy {
-	return &Proxy{namespace: ns}
+	return &Proxy{namespace: ns, image: ProxyImage}
 }
 
 func (p *Proxy) Boot(ctx context.Context, settings ProxySettings) error {
-	if settings.HTTPPort == 0 {
-		settings.HTTPPort = DefaultHTTPPort
-	}
-	if settings.HTTPSPort == 0 {
-		settings.HTTPSPort = DefaultHTTPSPort
-	}
-	if settings.MetricsPort == 0 {
-		settings.MetricsPort = DefaultMetricsPort
-	}
+	settings = withDefaultPorts(settings)
 
 	info, err := p.namespace.client.ContainerInspect(ctx, p.containerName(), client.ContainerInspectOptions{})
 	if err == nil {
-		return p.ensureRunning(ctx, info.Container)
+		if p.isCurrent(info.Container) {
+			return p.ensureRunning(ctx, info.Container)
+		}
+		return p.replace(ctx, info.Container)
 	}
 	if !errdefs.IsNotFound(err) {
 		return fmt.Errorf("inspecting proxy container: %w", err)
 	}
 
-	reader, err := p.namespace.client.ImagePull(ctx, ProxyImage, client.ImagePullOptions{})
-	if err != nil {
-		return fmt.Errorf("pulling proxy image: %w", err)
-	}
-	defer reader.Close()
-	_, _ = io.Copy(io.Discard, reader)
-
-	name := p.containerName()
-	httpPortTCP := network.MustParsePort("80/tcp")
-	httpsPortTCP := network.MustParsePort("443/tcp")
-	metricsPortTCP := network.MustParsePort(fmt.Sprintf("%d/tcp", settings.MetricsPort))
-
-	resp, err := p.namespace.client.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Name: name,
-		Config: &container.Config{
-			Image: ProxyImage,
-			Cmd:   []string{"kamal-proxy", "run", "--metrics-port", fmt.Sprintf("%d", settings.MetricsPort)},
-			Labels: map[string]string{
-				labelKey: settings.Marshal(),
-			},
-			ExposedPorts: network.PortSet{
-				httpPortTCP:    struct{}{},
-				httpsPortTCP:   struct{}{},
-				metricsPortTCP: struct{}{},
-			},
-		},
-		HostConfig: &container.HostConfig{
-			PortBindings: network.PortMap{
-				httpPortTCP:    []network.PortBinding{{HostPort: fmt.Sprintf("%d", settings.HTTPPort)}},
-				httpsPortTCP:   []network.PortBinding{{HostPort: fmt.Sprintf("%d", settings.HTTPSPort)}},
-				metricsPortTCP: []network.PortBinding{{HostIP: netip.MustParseAddr("127.0.0.1"), HostPort: fmt.Sprintf("%d", settings.MetricsPort)}},
-			},
-			RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyAlways},
-			LogConfig:     ContainerLogConfig(),
-			Mounts: []mount.Mount{
-				{
-					Type:   mount.TypeVolume,
-					Source: name,
-					Target: "/home/kamal-proxy/.config/kamal-proxy",
-				},
-			},
-		},
-		NetworkingConfig: &network.NetworkingConfig{
-			EndpointsConfig: map[string]*network.EndpointSettings{
-				p.namespace.name: {},
-			},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("creating proxy container: %w", err)
+	if err := p.pullImage(ctx); err != nil {
+		return err
 	}
 
-	if _, err := p.namespace.client.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
-		if isPortConflict(err) {
-			slog.Error("Port conflict starting proxy", "error", err)
-			return ErrProxyPortInUse
-		}
-		return fmt.Errorf("starting proxy container: %w", err)
+	id, err := p.createContainer(ctx, p.image, settings)
+	if err != nil {
+		return err
+	}
+
+	if err := p.startContainer(ctx, id); err != nil {
+		return err
 	}
 
 	p.Settings = &settings
 	return nil
+}
+
+// Upgrade replaces the proxy container when it was created from an image
+// other than the one this version of Once pins. It does nothing when there is
+// no proxy container.
+func (p *Proxy) Upgrade(ctx context.Context) error {
+	info, err := p.namespace.client.ContainerInspect(ctx, p.containerName(), client.ContainerInspectOptions{})
+	if errdefs.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspecting proxy container: %w", err)
+	}
+
+	if p.isCurrent(info.Container) {
+		return nil
+	}
+	return p.replace(ctx, info.Container)
 }
 
 func (p *Proxy) Destroy(ctx context.Context) error {
@@ -193,14 +163,171 @@ func (p *Proxy) containerName() string {
 
 // Private
 
+func (p *Proxy) isCurrent(info container.InspectResponse) bool {
+	return info.Config.Image == p.image
+}
+
+// replace swaps the existing proxy container for one created from the pinned
+// image. kamal-proxy's routes and certificates, and Once's own state file, live
+// on the proxy volume, which the new container mounts again, so kamal-proxy
+// restores them when it starts. If the new container can't be started, the old
+// one is recreated from its image so the apps stay reachable.
+func (p *Proxy) replace(ctx context.Context, old container.InspectResponse) error {
+	settings, err := settingsFromConfig(old.Config)
+	if err != nil {
+		return err
+	}
+
+	slog.Info("Replacing proxy container", "from", old.Config.Image, "to", p.image)
+
+	if err := p.pullImage(ctx); err != nil {
+		return err
+	}
+
+	if err := p.removeContainer(ctx, old.ID); err != nil {
+		return err
+	}
+
+	id, err := p.createContainer(ctx, p.image, settings)
+	if err == nil {
+		err = p.startContainer(ctx, id)
+	}
+	if err == nil {
+		err = p.waitUntilReady(ctx)
+	}
+	if err != nil {
+		slog.Error("Failed to start new proxy container; restoring the previous one", "error", err)
+		if restoreErr := p.restore(ctx, id, old.Image, settings); restoreErr != nil {
+			slog.Error("Failed to restore previous proxy container", "error", restoreErr)
+		}
+		return err
+	}
+
+	p.Settings = &settings
+	return nil
+}
+
+func (p *Proxy) restore(ctx context.Context, failedID, image string, settings ProxySettings) error {
+	if failedID != "" {
+		if _, err := p.namespace.client.ContainerRemove(ctx, failedID, client.ContainerRemoveOptions{Force: true}); err != nil && !errdefs.IsNotFound(err) {
+			return fmt.Errorf("removing failed proxy container: %w", err)
+		}
+	}
+
+	id, err := p.createContainer(ctx, image, settings)
+	if err != nil {
+		return err
+	}
+	return p.startContainer(ctx, id)
+}
+
+func (p *Proxy) pullImage(ctx context.Context) error {
+	reader, err := p.namespace.client.ImagePull(ctx, p.image, client.ImagePullOptions{})
+	if err != nil {
+		return fmt.Errorf("pulling proxy image: %w", err)
+	}
+	defer reader.Close()
+
+	if _, err := io.Copy(io.Discard, reader); err != nil {
+		return fmt.Errorf("pulling proxy image: %w", err)
+	}
+	return nil
+}
+
+func (p *Proxy) createContainer(ctx context.Context, image string, settings ProxySettings) (string, error) {
+	name := p.containerName()
+	httpPortTCP := network.MustParsePort("80/tcp")
+	httpsPortTCP := network.MustParsePort("443/tcp")
+	metricsPortTCP := network.MustParsePort(fmt.Sprintf("%d/tcp", settings.MetricsPort))
+
+	resp, err := p.namespace.client.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Name: name,
+		Config: &container.Config{
+			Image: image,
+			Cmd:   []string{"kamal-proxy", "run", "--metrics-port", fmt.Sprintf("%d", settings.MetricsPort)},
+			Labels: map[string]string{
+				labelKey: settings.Marshal(),
+			},
+			ExposedPorts: network.PortSet{
+				httpPortTCP:    struct{}{},
+				httpsPortTCP:   struct{}{},
+				metricsPortTCP: struct{}{},
+			},
+		},
+		HostConfig: &container.HostConfig{
+			PortBindings: network.PortMap{
+				httpPortTCP:    []network.PortBinding{{HostPort: fmt.Sprintf("%d", settings.HTTPPort)}},
+				httpsPortTCP:   []network.PortBinding{{HostPort: fmt.Sprintf("%d", settings.HTTPSPort)}},
+				metricsPortTCP: []network.PortBinding{{HostIP: netip.MustParseAddr("127.0.0.1"), HostPort: fmt.Sprintf("%d", settings.MetricsPort)}},
+			},
+			RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyAlways},
+			LogConfig:     ContainerLogConfig(),
+			Mounts: []mount.Mount{
+				{
+					Type:   mount.TypeVolume,
+					Source: name,
+					Target: stateFileDir,
+				},
+			},
+		},
+		NetworkingConfig: &network.NetworkingConfig{
+			EndpointsConfig: map[string]*network.EndpointSettings{
+				p.namespace.name: {},
+			},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("creating proxy container: %w", err)
+	}
+	return resp.ID, nil
+}
+
+func (p *Proxy) startContainer(ctx context.Context, id string) error {
+	if _, err := p.namespace.client.ContainerStart(ctx, id, client.ContainerStartOptions{}); err != nil {
+		if isPortConflict(err) {
+			slog.Error("Port conflict starting proxy", "error", err)
+			return ErrProxyPortInUse
+		}
+		return fmt.Errorf("starting proxy container: %w", err)
+	}
+	return nil
+}
+
+// waitUntilReady waits for kamal-proxy to answer on its control socket, which
+// it opens only once it has restored its saved state. A container can start
+// and then exit straight away, so a successful start alone doesn't show that.
+func (p *Proxy) waitUntilReady(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, proxyReadyTimeout)
+	defer cancel()
+
+	for {
+		_, err := p.ExecOutput(ctx, []string{"kamal-proxy", "list"})
+		if err == nil {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for proxy to start: %w", err)
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
+func (p *Proxy) removeContainer(ctx context.Context, id string) error {
+	if _, err := p.namespace.client.ContainerStop(ctx, id, client.ContainerStopOptions{}); err != nil && !errdefs.IsNotFound(err) {
+		return fmt.Errorf("stopping proxy container: %w", err)
+	}
+	if _, err := p.namespace.client.ContainerRemove(ctx, id, client.ContainerRemoveOptions{}); err != nil && !errdefs.IsNotFound(err) {
+		return fmt.Errorf("removing proxy container: %w", err)
+	}
+	return nil
+}
+
 func (p *Proxy) ensureRunning(ctx context.Context, info container.InspectResponse) error {
 	if !info.State.Running {
-		if _, err := p.namespace.client.ContainerStart(ctx, info.ID, client.ContainerStartOptions{}); err != nil {
-			if isPortConflict(err) {
-				slog.Error("Port conflict starting proxy", "error", err)
-				return ErrProxyPortInUse
-			}
-			return fmt.Errorf("starting proxy container: %w", err)
+		if err := p.startContainer(ctx, info.ID); err != nil {
+			return err
 		}
 	}
 
@@ -298,4 +425,24 @@ func (p *Proxy) ExecOutput(ctx context.Context, cmd []string) (string, error) {
 		return result.Stdout + result.Stderr, fmt.Errorf("exec failed with exit code %d", result.ExitCode)
 	}
 	return result.Stdout, nil
+}
+
+// Helpers
+
+func withDefaultPorts(settings ProxySettings) ProxySettings {
+	settings.HTTPPort = cmp.Or(settings.HTTPPort, DefaultHTTPPort)
+	settings.HTTPSPort = cmp.Or(settings.HTTPSPort, DefaultHTTPSPort)
+	settings.MetricsPort = cmp.Or(settings.MetricsPort, DefaultMetricsPort)
+	return settings
+}
+
+func settingsFromConfig(config *container.Config) (ProxySettings, error) {
+	var settings ProxySettings
+	if config.Labels[labelKey] != "" {
+		var err error
+		if settings, err = UnmarshalProxySettings(config.Labels[labelKey]); err != nil {
+			return ProxySettings{}, fmt.Errorf("unmarshalling proxy settings: %w", err)
+		}
+	}
+	return withDefaultPorts(settings), nil
 }

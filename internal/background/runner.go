@@ -65,6 +65,10 @@ func (r *Runner) check(ctx context.Context) (bool, error) {
 		return true, nil
 	}
 
+	if err := ns.Proxy().Upgrade(ctx); err != nil {
+		slog.Error("Proxy upgrade failed", "error", err)
+	}
+
 	for _, app := range ns.Applications() {
 		if !app.Running {
 			continue

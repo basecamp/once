@@ -38,6 +38,10 @@ import (
 
 const integrationAppImageRef = "ghcr.io/basecamp/once-integration-app:latest"
 
+// An older kamal-proxy release, used to check that Once replaces a proxy
+// container created from an image other than docker.ProxyImage.
+const previousProxyImage = "basecamp/kamal-proxy:v0.10.2@sha256:a686220c2aa42c4f9bbcfe851b1d21b2cedee0b5c389890c29d205282379da7c"
+
 const (
 	testRegistryUsername = "registry-user"
 	testRegistryPassword = "registry-pass"
@@ -50,7 +54,7 @@ const (
 // inside their own timeouts.
 func TestMain(m *testing.M) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	err := pullImages(ctx, integrationAppImageRef, "registry:2", docker.ProxyImage)
+	err := pullImages(ctx, integrationAppImageRef, "registry:2", docker.ProxyImage, previousProxyImage)
 	cancel()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "failed to pull test images:", err)
@@ -1058,6 +1062,119 @@ func TestUpdateHostCollision(t *testing.T) {
 
 // Helpers
 
+func TestProxyUpgrade(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ns := newTestNamespace(t, "once-proxy-upgrade-test")
+	previous, err := docker.NewNamespace(ns.Name(), docker.WithProxyImage(previousProxyImage))
+	require.NoError(t, err)
+
+	proxySettings := getProxyPorts(t)
+	require.NoError(t, previous.EnsureNetwork(ctx))
+	require.NoError(t, previous.Proxy().Boot(ctx, proxySettings))
+	assert.Equal(t, previousProxyImage, proxyContainerImage(t, ctx, ns))
+
+	deployApp(t, ctx, previous, docker.ApplicationSettings{
+		Name:  "upgrade",
+		Image: integrationAppImageRef,
+		Host:  "upgrade.localhost",
+	})
+	assertProxyRoutes(t, ctx, proxySettings.HTTPPort, "upgrade.localhost")
+
+	state, err := previous.LoadState(ctx)
+	require.NoError(t, err)
+	state.RecordSelfUpdate(nil)
+	require.NoError(t, previous.SaveState(ctx, state))
+
+	require.NoError(t, ns.Proxy().Upgrade(ctx))
+	assert.Equal(t, docker.ProxyImage, proxyContainerImage(t, ctx, ns))
+	assertContainerRunning(t, ctx, ns.Name()+"-proxy", true)
+
+	require.NotNil(t, ns.Proxy().Settings)
+	assert.Equal(t, proxySettings, *ns.Proxy().Settings)
+
+	assertProxyRoutes(t, ctx, proxySettings.HTTPPort, "upgrade.localhost")
+
+	restoredState, err := ns.LoadState(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, state.LastSelfUpdate.At.UTC(), restoredState.LastSelfUpdate.At.UTC())
+
+	require.NoError(t, ns.Refresh(ctx))
+	require.NotNil(t, ns.Proxy().Settings)
+	assert.Equal(t, proxySettings, *ns.Proxy().Settings)
+	assert.NotNil(t, ns.Application("upgrade"))
+
+	// Once the proxy is current, booting or upgrading leaves the container alone
+	id := proxyContainerID(t, ctx, ns)
+	require.NoError(t, ns.Proxy().Upgrade(ctx))
+	require.NoError(t, ns.Proxy().Boot(ctx, docker.ProxySettings{}))
+	assert.Equal(t, id, proxyContainerID(t, ctx, ns))
+}
+
+func TestProxyBootReplacesOutdatedProxy(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ns := newTestNamespace(t, "once-proxy-boot-upgrade-test")
+	previous, err := docker.NewNamespace(ns.Name(), docker.WithProxyImage(previousProxyImage))
+	require.NoError(t, err)
+
+	proxySettings := getProxyPorts(t)
+	require.NoError(t, previous.EnsureNetwork(ctx))
+	require.NoError(t, previous.Proxy().Boot(ctx, proxySettings))
+
+	require.NoError(t, ns.Setup(ctx))
+	assert.Equal(t, docker.ProxyImage, proxyContainerImage(t, ctx, ns))
+	assert.Equal(t, proxySettings, *ns.Proxy().Settings)
+}
+
+func TestProxyUpgradeRestoresPreviousProxyOnFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ns := newTestNamespace(t, "once-proxy-upgrade-fail-test")
+
+	proxySettings := getProxyPorts(t)
+	require.NoError(t, ns.EnsureNetwork(ctx))
+	require.NoError(t, ns.Proxy().Boot(ctx, proxySettings))
+	previousImageID := inspectProxyContainer(t, ctx, ns).Image
+
+	deployApp(t, ctx, ns, docker.ApplicationSettings{
+		Name:  "upgrade",
+		Image: integrationAppImageRef,
+		Host:  "upgrade.localhost",
+	})
+
+	// registry:2 has no kamal-proxy binary, so its container can't start
+	broken, err := docker.NewNamespace(ns.Name(), docker.WithProxyImage("registry:2"))
+	require.NoError(t, err)
+	require.Error(t, broken.Proxy().Upgrade(ctx))
+
+	assert.Equal(t, previousImageID, inspectProxyContainer(t, ctx, ns).Image)
+	assertContainerRunning(t, ctx, ns.Name()+"-proxy", true)
+	assertProxyRoutes(t, ctx, proxySettings.HTTPPort, "upgrade.localhost")
+}
+
+func TestProxyUpgradeWithoutProxy(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	ns := newTestNamespace(t, "once-proxy-upgrade-none-test")
+	require.NoError(t, ns.EnsureNetwork(ctx))
+
+	require.NoError(t, ns.Proxy().Upgrade(ctx))
+	assert.Equal(t, 0, countContainers(t, ctx, ns.Name()+"-proxy"))
+}
+
 func TestContainerResources(t *testing.T) {
 	t.Parallel()
 
@@ -1152,6 +1269,43 @@ func getProxyPorts(t *testing.T) docker.ProxySettings {
 		HTTPSPort:   getFreePort(t),
 		MetricsPort: getFreePort(t),
 	}
+}
+
+func inspectProxyContainer(t *testing.T, ctx context.Context, ns *docker.Namespace) container.InspectResponse {
+	t.Helper()
+	c, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer c.Close()
+
+	info, err := c.ContainerInspect(ctx, ns.Name()+"-proxy", client.ContainerInspectOptions{})
+	require.NoError(t, err)
+	return info.Container
+}
+
+func proxyContainerImage(t *testing.T, ctx context.Context, ns *docker.Namespace) string {
+	t.Helper()
+	return inspectProxyContainer(t, ctx, ns).Config.Image
+}
+
+func proxyContainerID(t *testing.T, ctx context.Context, ns *docker.Namespace) string {
+	t.Helper()
+	return inspectProxyContainer(t, ctx, ns).ID
+}
+
+func assertProxyRoutes(t *testing.T, ctx context.Context, httpPort int, host string) {
+	t.Helper()
+	url := fmt.Sprintf("http://127.0.0.1:%d%s", httpPort, docker.HealthCheckPath)
+
+	assert.EventuallyWithT(t, func(c *assert.CollectT) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		require.NoError(c, err)
+		req.Host = host
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(c, err)
+		defer resp.Body.Close()
+		assert.Equal(c, http.StatusOK, resp.StatusCode)
+	}, 30*time.Second, 250*time.Millisecond)
 }
 
 func assertContainerRunning(t *testing.T, ctx context.Context, name string, expectRunning bool) {

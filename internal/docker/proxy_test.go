@@ -3,7 +3,9 @@ package docker
 import (
 	"testing"
 
+	"github.com/moby/moby/api/types/container"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestProxyContainerName(t *testing.T) {
@@ -57,5 +59,51 @@ func TestDeployArgs(t *testing.T) {
 			"--host", "chat.example.com",
 			"--tls",
 		}, args)
+	})
+}
+
+func TestProxyImageIsPinnedByDigest(t *testing.T) {
+	assert.Regexp(t, `^basecamp/kamal-proxy:v\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$`, ProxyImage)
+}
+
+func TestProxyIsCurrent(t *testing.T) {
+	proxy := NewProxy(&Namespace{name: "once"})
+
+	inspect := func(image string) container.InspectResponse {
+		return container.InspectResponse{Config: &container.Config{Image: image}}
+	}
+
+	assert.True(t, proxy.isCurrent(inspect(ProxyImage)))
+	assert.False(t, proxy.isCurrent(inspect("basecamp/kamal-proxy:once-01")))
+	assert.False(t, proxy.isCurrent(inspect("sha256:8179b0e60661cb97083d63152cf513bf08a4cb025f734a5a5fda2461b8ff0472")))
+}
+
+func TestSettingsFromConfig(t *testing.T) {
+	t.Run("uses the settings stored on the container", func(t *testing.T) {
+		stored := ProxySettings{HTTPPort: 8080, HTTPSPort: 8443, MetricsPort: 9090}
+		settings, err := settingsFromConfig(&container.Config{Labels: map[string]string{labelKey: stored.Marshal()}})
+
+		require.NoError(t, err)
+		assert.Equal(t, stored, settings)
+	})
+
+	t.Run("fills in defaults for missing ports", func(t *testing.T) {
+		settings, err := settingsFromConfig(&container.Config{Labels: map[string]string{labelKey: `{"httpPort":8080}`}})
+
+		require.NoError(t, err)
+		assert.Equal(t, ProxySettings{HTTPPort: 8080, HTTPSPort: DefaultHTTPSPort, MetricsPort: DefaultMetricsPort}, settings)
+	})
+
+	t.Run("uses defaults without a label", func(t *testing.T) {
+		settings, err := settingsFromConfig(&container.Config{})
+
+		require.NoError(t, err)
+		assert.Equal(t, ProxySettings{HTTPPort: DefaultHTTPPort, HTTPSPort: DefaultHTTPSPort, MetricsPort: DefaultMetricsPort}, settings)
+	})
+
+	t.Run("rejects a malformed label", func(t *testing.T) {
+		_, err := settingsFromConfig(&container.Config{Labels: map[string]string{labelKey: "{"}})
+
+		assert.Error(t, err)
 	})
 }
