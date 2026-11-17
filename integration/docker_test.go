@@ -1144,7 +1144,7 @@ func TestProxyUpgradeRestoresPreviousProxyOnFailure(t *testing.T) {
 	proxySettings := getProxyPorts(t)
 	require.NoError(t, ns.EnsureNetwork(ctx))
 	require.NoError(t, ns.Proxy().Boot(ctx, proxySettings))
-	previousImageID := inspectProxyContainer(t, ctx, ns).Image
+	previousID := proxyContainerID(t, ctx, ns)
 
 	deployApp(t, ctx, ns, docker.ApplicationSettings{
 		Name:  "upgrade",
@@ -1157,9 +1157,174 @@ func TestProxyUpgradeRestoresPreviousProxyOnFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.Error(t, broken.Proxy().Upgrade(ctx))
 
-	assert.Equal(t, previousImageID, inspectProxyContainer(t, ctx, ns).Image)
-	assertContainerRunning(t, ctx, ns.Name()+"-proxy", true)
+	assertProxyRestored(t, ctx, ns, previousID, proxySettings.HTTPPort, "upgrade.localhost")
+}
+
+func TestProxyUpgradeRestoresPreviousProxyWhenCanceled(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ns := newTestNamespace(t, "once-proxy-upgrade-cancel-test")
+
+	proxySettings := getProxyPorts(t)
+	require.NoError(t, ns.EnsureNetwork(ctx))
+	require.NoError(t, ns.Proxy().Boot(ctx, proxySettings))
+	previousID := proxyContainerID(t, ctx, ns)
+
+	deployApp(t, ctx, ns, docker.ApplicationSettings{
+		Name:  "upgrade",
+		Image: integrationAppImageRef,
+		Host:  "upgrade.localhost",
+	})
+
+	// Cancel while waiting for a new proxy that never becomes ready, after the
+	// old one has been stopped
+	broken, err := docker.NewNamespace(ns.Name(), docker.WithProxyImage("registry:2"))
+	require.NoError(t, err)
+	upgradeCtx, cancelUpgrade := context.WithCancel(ctx)
+	defer cancelUpgrade()
+	go cancelWhenStopped(ctx, ns.Name()+"-proxy", cancelUpgrade)
+
+	start := time.Now()
+	require.Error(t, broken.Proxy().Upgrade(upgradeCtx))
+	assert.Less(t, time.Since(start), 25*time.Second, "upgrade should stop waiting when canceled")
+
+	assertProxyRestored(t, ctx, ns, previousID, proxySettings.HTTPPort, "upgrade.localhost")
+}
+
+func TestProxyUpgradeRejectsUnrestoredRoutes(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ns := newTestNamespace(t, "once-proxy-upgrade-state-test")
+	previous, err := docker.NewNamespace(ns.Name(), docker.WithProxyImage(previousProxyImage))
+	require.NoError(t, err)
+
+	proxySettings := getProxyPorts(t)
+	require.NoError(t, previous.EnsureNetwork(ctx))
+	require.NoError(t, previous.Proxy().Boot(ctx, proxySettings))
+	previousID := proxyContainerID(t, ctx, ns)
+
+	deployApp(t, ctx, previous, docker.ApplicationSettings{
+		Name:  "upgrade",
+		Image: integrationAppImageRef,
+		Host:  "upgrade.localhost",
+	})
+
+	require.NoError(t, ns.Refresh(ctx))
+
+	// A state file Once can't read stops the upgrade before the old proxy is
+	// touched; it keeps serving from the routes it holds in memory
+	writeProxyStateFile(t, ctx, ns, "not json")
+	err = ns.Proxy().Upgrade(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "decoding proxy state")
+	assert.Equal(t, previousID, proxyContainerID(t, ctx, ns))
 	assertProxyRoutes(t, ctx, proxySettings.HTTPPort, "upgrade.localhost")
+
+	// One Once can read but kamal-proxy can't leaves the new proxy with no
+	// routes, so the old container is kept
+	writeProxyStateFile(t, ctx, ns, `[{"name":"upgrade","active_targets":"not-a-list"}]`)
+	err = ns.Proxy().Upgrade(ctx)
+	require.ErrorIs(t, err, docker.ErrProxyRoutesNotRestored)
+	assert.Equal(t, previousID, proxyContainerID(t, ctx, ns))
+	assert.Equal(t, previousProxyImage, proxyContainerImage(t, ctx, ns))
+	assertContainerRunning(t, ctx, ns.Name()+"-proxy", true)
+	assert.Equal(t, 0, countContainers(t, ctx, ns.Name()+"-proxy-next"))
+}
+
+func TestProxyUpgradeCompletesInterruptedReplace(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ns := newTestNamespace(t, "once-proxy-recover-done-test")
+
+	proxySettings := getProxyPorts(t)
+	require.NoError(t, ns.EnsureNetwork(ctx))
+	require.NoError(t, ns.Proxy().Boot(ctx, proxySettings))
+	id := proxyContainerID(t, ctx, ns)
+
+	deployApp(t, ctx, ns, docker.ApplicationSettings{
+		Name:  "upgrade",
+		Image: integrationAppImageRef,
+		Host:  "upgrade.localhost",
+	})
+
+	// Interrupted after removing the old container, before renaming the new one
+	renameContainer(t, ctx, id, ns.Name()+"-proxy-next")
+
+	require.NoError(t, ns.Proxy().Upgrade(ctx))
+	assertProxyRestored(t, ctx, ns, id, proxySettings.HTTPPort, "upgrade.localhost")
+}
+
+func TestProxyUpgradeUndoesInterruptedReplace(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ns := newTestNamespace(t, "once-proxy-recover-undo-test")
+	previous, err := docker.NewNamespace(ns.Name(), docker.WithProxyImage(previousProxyImage))
+	require.NoError(t, err)
+
+	proxySettings := getProxyPorts(t)
+	require.NoError(t, previous.EnsureNetwork(ctx))
+	require.NoError(t, previous.Proxy().Boot(ctx, proxySettings))
+
+	deployApp(t, ctx, previous, docker.ApplicationSettings{
+		Name:  "upgrade",
+		Image: integrationAppImageRef,
+		Host:  "upgrade.localhost",
+	})
+
+	require.NoError(t, ns.Refresh(ctx))
+
+	// Interrupted after stopping the old container, with the new one created
+	c, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer c.Close()
+	_, err = c.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Name:   ns.Name() + "-proxy-next",
+		Config: &container.Config{Image: "registry:2"},
+	})
+	require.NoError(t, err)
+	_, err = c.ContainerStop(ctx, ns.Name()+"-proxy", client.ContainerStopOptions{})
+	require.NoError(t, err)
+
+	require.NoError(t, ns.Proxy().Upgrade(ctx))
+	assert.Equal(t, docker.ProxyImage, proxyContainerImage(t, ctx, ns))
+	assertContainerRunning(t, ctx, ns.Name()+"-proxy", true)
+	assert.Equal(t, 0, countContainers(t, ctx, ns.Name()+"-proxy-next"))
+	assertProxyRoutes(t, ctx, proxySettings.HTTPPort, "upgrade.localhost")
+}
+
+func TestProxyUpgradeKeepsProxyWhenPullFails(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ns := newTestNamespace(t, "once-proxy-upgrade-pull-test")
+
+	proxySettings := getProxyPorts(t)
+	require.NoError(t, ns.EnsureNetwork(ctx))
+	require.NoError(t, ns.Proxy().Boot(ctx, proxySettings))
+	id := proxyContainerID(t, ctx, ns)
+
+	missing, err := docker.NewNamespace(ns.Name(), docker.WithProxyImage("basecamp/kamal-proxy:v0.10.3@sha256:"+strings.Repeat("0", 64)))
+	require.NoError(t, err)
+
+	err = missing.Proxy().Upgrade(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pulling proxy image")
+	assert.Equal(t, id, proxyContainerID(t, ctx, ns))
+	assertContainerRunning(t, ctx, ns.Name()+"-proxy", true)
 }
 
 func TestProxyUpgradeWithoutProxy(t *testing.T) {
@@ -1290,6 +1455,61 @@ func proxyContainerImage(t *testing.T, ctx context.Context, ns *docker.Namespace
 func proxyContainerID(t *testing.T, ctx context.Context, ns *docker.Namespace) string {
 	t.Helper()
 	return inspectProxyContainer(t, ctx, ns).ID
+}
+
+func assertProxyRestored(t *testing.T, ctx context.Context, ns *docker.Namespace, id string, httpPort int, host string) {
+	t.Helper()
+	assert.Equal(t, id, proxyContainerID(t, ctx, ns))
+	assertContainerRunning(t, ctx, ns.Name()+"-proxy", true)
+	assert.Equal(t, 0, countContainers(t, ctx, ns.Name()+"-proxy-next"))
+	assertProxyRoutes(t, ctx, httpPort, host)
+}
+
+func writeProxyStateFile(t *testing.T, ctx context.Context, ns *docker.Namespace, content string) {
+	t.Helper()
+	c, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer c.Close()
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "kamal-proxy.state", Mode: 0o644, Size: int64(len(content))}))
+	_, err = tw.Write([]byte(content))
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+
+	_, err = c.CopyToContainer(ctx, ns.Name()+"-proxy", client.CopyToContainerOptions{
+		DestinationPath: "/home/kamal-proxy/.config/kamal-proxy",
+		Content:         &buf,
+	})
+	require.NoError(t, err)
+}
+
+func cancelWhenStopped(ctx context.Context, name string, cancel context.CancelFunc) {
+	c, err := client.New(client.FromEnv)
+	if err != nil {
+		return
+	}
+	defer c.Close()
+
+	for ctx.Err() == nil {
+		info, err := c.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
+		if err == nil && !info.Container.State.Running {
+			cancel()
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func renameContainer(t *testing.T, ctx context.Context, id, name string) {
+	t.Helper()
+	c, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer c.Close()
+
+	_, err = c.ContainerRename(ctx, id, client.ContainerRenameOptions{NewName: name})
+	require.NoError(t, err)
 }
 
 func assertProxyRoutes(t *testing.T, ctx context.Context, httpPort int, host string) {

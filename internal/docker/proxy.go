@@ -6,10 +6,12 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"log/slog"
+	"maps"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -29,6 +31,8 @@ const (
 	stateFileDir  = "/home/kamal-proxy/.config/kamal-proxy"
 	stateFileName = "once-state.json"
 	stateFilePath = stateFileDir + "/" + stateFileName
+
+	proxyStateFilePath = stateFileDir + "/kamal-proxy.state"
 )
 
 const (
@@ -37,7 +41,11 @@ const (
 	DefaultMetricsPort = 1318
 	deployTimeout      = "120s"
 	proxyReadyTimeout  = 30 * time.Second
+
+	proxyRecoveryTimeout = 2 * time.Minute
 )
+
+var ErrProxyRoutesNotRestored = errors.New("new proxy did not restore the saved routes")
 
 type ProxySettings struct {
 	HTTPPort    int `json:"httpPort"`
@@ -76,6 +84,16 @@ func NewProxy(ns *Namespace) *Proxy {
 func (p *Proxy) Boot(ctx context.Context, settings ProxySettings) error {
 	settings = withDefaultPorts(settings)
 
+	unlock, err := lockNamespace(ctx, p.namespace.name)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	if err := p.recoverInterruptedReplace(ctx); err != nil {
+		return err
+	}
+
 	info, err := p.namespace.client.ContainerInspect(ctx, p.containerName(), client.ContainerInspectOptions{})
 	if err == nil {
 		if p.isCurrent(info.Container) {
@@ -91,7 +109,7 @@ func (p *Proxy) Boot(ctx context.Context, settings ProxySettings) error {
 		return err
 	}
 
-	id, err := p.createContainer(ctx, p.image, settings)
+	id, err := p.createContainer(ctx, p.containerName(), p.image, settings)
 	if err != nil {
 		return err
 	}
@@ -105,9 +123,20 @@ func (p *Proxy) Boot(ctx context.Context, settings ProxySettings) error {
 }
 
 // Upgrade replaces the proxy container when it was created from an image
-// other than the one this version of Once pins. It does nothing when there is
-// no proxy container.
+// other than the one this version of Once pins, and finishes or undoes a
+// replacement that was interrupted. It does nothing when there is no proxy
+// container.
 func (p *Proxy) Upgrade(ctx context.Context) error {
+	unlock, err := lockNamespace(ctx, p.namespace.name)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	if err := p.recoverInterruptedReplace(ctx); err != nil {
+		return err
+	}
+
 	info, err := p.namespace.client.ContainerInspect(ctx, p.containerName(), client.ContainerInspectOptions{})
 	if errdefs.IsNotFound(err) {
 		return nil
@@ -123,7 +152,17 @@ func (p *Proxy) Upgrade(ctx context.Context) error {
 }
 
 func (p *Proxy) Destroy(ctx context.Context) error {
+	unlock, err := lockNamespace(ctx, p.namespace.name)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	containerName := p.containerName()
+
+	if _, err := p.namespace.client.ContainerRemove(ctx, p.nextContainerName(), client.ContainerRemoveOptions{Force: true}); err != nil && !errdefs.IsNotFound(err) {
+		return fmt.Errorf("removing proxy: %w", err)
+	}
 
 	if _, err := p.namespace.client.ContainerRemove(ctx, containerName, client.ContainerRemoveOptions{Force: true}); err != nil {
 		if !errdefs.IsNotFound(err) {
@@ -150,15 +189,23 @@ func (p *Proxy) Exec(ctx context.Context, cmd []string) error {
 }
 
 func (p *Proxy) Remove(ctx context.Context, appName string) error {
-	return p.Exec(ctx, []string{"kamal-proxy", "remove", appName})
+	return p.lockedExec(ctx, []string{"kamal-proxy", "remove", appName})
 }
 
+// Deploy holds the namespace lock until kamal-proxy has finished the deploy,
+// so the proxy can't be replaced while it's in progress. kamal-proxy saves the
+// new target before the deploy returns, so interrupting it would leave the
+// restarted proxy routing to a container the failed deploy then removes.
 func (p *Proxy) Deploy(ctx context.Context, opts DeployOptions) error {
-	return p.Exec(ctx, p.deployArgs(opts))
+	return p.lockedExec(ctx, p.deployArgs(opts))
 }
 
 func (p *Proxy) containerName() string {
 	return p.namespace.name + "-proxy"
+}
+
+func (p *Proxy) nextContainerName() string {
+	return p.containerName() + "-next"
 }
 
 // Private
@@ -167,13 +214,29 @@ func (p *Proxy) isCurrent(info container.InspectResponse) bool {
 	return info.Config.Image == p.image
 }
 
+func (p *Proxy) lockedExec(ctx context.Context, cmd []string) error {
+	unlock, err := lockNamespace(ctx, p.namespace.name)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	return p.Exec(ctx, cmd)
+}
+
 // replace swaps the existing proxy container for one created from the pinned
-// image. kamal-proxy's routes and certificates, and Once's own state file, live
-// on the proxy volume, which the new container mounts again, so kamal-proxy
-// restores them when it starts. If the new container can't be started, the old
-// one is recreated from its image so the apps stay reachable.
+// image. The new container is created alongside the old one under a temporary
+// name, and the old one is only stopped, so it can be started again if the new
+// one fails. kamal-proxy's routes and certificates, and Once's own state file,
+// live on the proxy volume, which the new container mounts too; the new proxy
+// is accepted only once it has restored every route the old one had saved.
 func (p *Proxy) replace(ctx context.Context, old container.InspectResponse) error {
 	settings, err := settingsFromConfig(old.Config)
+	if err != nil {
+		return err
+	}
+
+	routes, err := p.savedRoutes(ctx, old.ID)
 	if err != nil {
 		return err
 	}
@@ -184,22 +247,24 @@ func (p *Proxy) replace(ctx context.Context, old container.InspectResponse) erro
 		return err
 	}
 
-	if err := p.removeContainer(ctx, old.ID); err != nil {
+	nextID, err := p.createContainer(ctx, p.nextContainerName(), p.image, settings)
+	if err != nil {
 		return err
 	}
 
-	id, err := p.createContainer(ctx, p.image, settings)
+	err = p.stopContainer(ctx, old.ID)
 	if err == nil {
-		err = p.startContainer(ctx, id)
+		err = p.startContainer(ctx, nextID)
 	}
 	if err == nil {
-		err = p.waitUntilReady(ctx)
+		err = p.waitForRoutes(ctx, p.nextContainerName(), routes)
 	}
 	if err != nil {
-		slog.Error("Failed to start new proxy container; restoring the previous one", "error", err)
-		if restoreErr := p.restore(ctx, id, old.Image, settings); restoreErr != nil {
-			slog.Error("Failed to restore previous proxy container", "error", restoreErr)
-		}
+		slog.Error("New proxy container failed; restarting the previous one", "error", err)
+		return errors.Join(err, p.rollBack(ctx, nextID, old.ID))
+	}
+
+	if err := p.promote(context.WithoutCancel(ctx), nextID, old.ID); err != nil {
 		return err
 	}
 
@@ -207,35 +272,164 @@ func (p *Proxy) replace(ctx context.Context, old container.InspectResponse) erro
 	return nil
 }
 
-func (p *Proxy) restore(ctx context.Context, failedID, image string, settings ProxySettings) error {
-	if failedID != "" {
-		if _, err := p.namespace.client.ContainerRemove(ctx, failedID, client.ContainerRemoveOptions{Force: true}); err != nil && !errdefs.IsNotFound(err) {
-			return fmt.Errorf("removing failed proxy container: %w", err)
-		}
-	}
+// rollBack removes the new container and starts the old one. It runs even when
+// ctx is canceled, so a shutdown mid-replace doesn't leave the host without a
+// proxy.
+func (p *Proxy) rollBack(ctx context.Context, nextID, oldID string) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), proxyRecoveryTimeout)
+	defer cancel()
 
-	id, err := p.createContainer(ctx, image, settings)
-	if err != nil {
-		return err
+	if _, err := p.namespace.client.ContainerRemove(ctx, nextID, client.ContainerRemoveOptions{Force: true}); err != nil && !errdefs.IsNotFound(err) {
+		return fmt.Errorf("removing new proxy container: %w", err)
 	}
-	return p.startContainer(ctx, id)
+	if err := p.startContainer(ctx, oldID); err != nil {
+		return fmt.Errorf("restarting previous proxy container: %w", err)
+	}
+	return nil
 }
 
+func (p *Proxy) promote(ctx context.Context, nextID, oldID string) error {
+	ctx, cancel := context.WithTimeout(ctx, proxyRecoveryTimeout)
+	defer cancel()
+
+	if _, err := p.namespace.client.ContainerRemove(ctx, oldID, client.ContainerRemoveOptions{}); err != nil && !errdefs.IsNotFound(err) {
+		return fmt.Errorf("removing previous proxy container: %w", err)
+	}
+	if _, err := p.namespace.client.ContainerRename(ctx, nextID, client.ContainerRenameOptions{NewName: p.containerName()}); err != nil {
+		return fmt.Errorf("renaming new proxy container: %w", err)
+	}
+	return nil
+}
+
+// recoverInterruptedReplace tidies up after a replace that didn't finish. If
+// the old container was already removed, the new one had restored its routes,
+// so it takes over the proxy name. Otherwise the new one is discarded and the
+// old one is started again.
+func (p *Proxy) recoverInterruptedReplace(ctx context.Context) error {
+	next, err := p.namespace.client.ContainerInspect(ctx, p.nextContainerName(), client.ContainerInspectOptions{})
+	if errdefs.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspecting proxy container: %w", err)
+	}
+
+	current, err := p.namespace.client.ContainerInspect(ctx, p.containerName(), client.ContainerInspectOptions{})
+	if errdefs.IsNotFound(err) {
+		slog.Info("Completing interrupted proxy replacement")
+		if _, err := p.namespace.client.ContainerRename(ctx, next.Container.ID, client.ContainerRenameOptions{NewName: p.containerName()}); err != nil {
+			return fmt.Errorf("renaming new proxy container: %w", err)
+		}
+		return p.ensureStarted(ctx, next.Container)
+	}
+	if err != nil {
+		return fmt.Errorf("inspecting proxy container: %w", err)
+	}
+
+	slog.Info("Undoing interrupted proxy replacement")
+	if _, err := p.namespace.client.ContainerRemove(ctx, next.Container.ID, client.ContainerRemoveOptions{Force: true}); err != nil && !errdefs.IsNotFound(err) {
+		return fmt.Errorf("removing new proxy container: %w", err)
+	}
+	return p.ensureStarted(ctx, current.Container)
+}
+
+// savedRoutes returns the names of the services kamal-proxy has saved in its
+// state file, which the replacement proxy must restore.
+func (p *Proxy) savedRoutes(ctx context.Context, containerID string) ([]string, error) {
+	res, err := p.namespace.client.CopyFromContainer(ctx, containerID, client.CopyFromContainerOptions{SourcePath: proxyStateFilePath})
+	if errdefs.IsNotFound(err) {
+		return []string{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading proxy state: %w", err)
+	}
+	defer res.Content.Close()
+
+	tr := tar.NewReader(res.Content)
+	if _, err := tr.Next(); err != nil {
+		return nil, fmt.Errorf("reading proxy state: %w", err)
+	}
+
+	var services []struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(tr).Decode(&services); err != nil {
+		return nil, fmt.Errorf("decoding proxy state: %w", err)
+	}
+
+	names := make([]string, 0, len(services))
+	for _, s := range services {
+		names = append(names, s.Name)
+	}
+	slices.Sort(names)
+	return names, nil
+}
+
+// waitForRoutes waits for kamal-proxy in the named container to answer on its
+// control socket, which it opens only after restoring its saved state, and
+// checks that it restored the expected routes. kamal-proxy starts with no
+// routes when it can't read its state file, so answering isn't enough.
+func (p *Proxy) waitForRoutes(ctx context.Context, name string, expected []string) error {
+	ctx, cancel := context.WithTimeout(ctx, proxyReadyTimeout)
+	defer cancel()
+
+	for {
+		routes, err := p.listRoutes(ctx, name)
+		if err == nil {
+			if !slices.Equal(routes, expected) {
+				return fmt.Errorf("%w: expected %v, got %v", ErrProxyRoutesNotRestored, expected, routes)
+			}
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for proxy to start: %w", err)
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
+func (p *Proxy) listRoutes(ctx context.Context, name string) ([]string, error) {
+	result, err := execInContainer(ctx, p.namespace.client, name, []string{"kamal-proxy", "list", "--json"})
+	if err != nil {
+		return nil, err
+	}
+	if result.ExitCode != 0 {
+		return nil, fmt.Errorf("listing routes failed with exit code %d: %s", result.ExitCode, strings.TrimSpace(result.Stderr))
+	}
+
+	var services map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(result.Stdout), &services); err != nil {
+		return nil, fmt.Errorf("decoding routes: %w", err)
+	}
+
+	names := slices.Sorted(maps.Keys(services))
+	if names == nil {
+		names = []string{}
+	}
+	return names, nil
+}
+
+// pullImage pulls the proxy image unless it's already present. The image is
+// pinned by digest, so a local copy is always the right one.
 func (p *Proxy) pullImage(ctx context.Context) error {
-	reader, err := p.namespace.client.ImagePull(ctx, p.image, client.ImagePullOptions{})
+	if _, err := p.namespace.client.ImageInspect(ctx, p.image); err == nil {
+		return nil
+	}
+
+	resp, err := p.namespace.client.ImagePull(ctx, p.image, client.ImagePullOptions{})
 	if err != nil {
 		return fmt.Errorf("pulling proxy image: %w", err)
 	}
-	defer reader.Close()
 
-	if _, err := io.Copy(io.Discard, reader); err != nil {
+	if err := resp.Wait(ctx); err != nil {
 		return fmt.Errorf("pulling proxy image: %w", err)
 	}
 	return nil
 }
 
-func (p *Proxy) createContainer(ctx context.Context, image string, settings ProxySettings) (string, error) {
-	name := p.containerName()
+func (p *Proxy) createContainer(ctx context.Context, name, image string, settings ProxySettings) (string, error) {
 	httpPortTCP := network.MustParsePort("80/tcp")
 	httpsPortTCP := network.MustParsePort("443/tcp")
 	metricsPortTCP := network.MustParsePort(fmt.Sprintf("%d/tcp", settings.MetricsPort))
@@ -265,7 +459,7 @@ func (p *Proxy) createContainer(ctx context.Context, image string, settings Prox
 			Mounts: []mount.Mount{
 				{
 					Type:   mount.TypeVolume,
-					Source: name,
+					Source: p.containerName(),
 					Target: stateFileDir,
 				},
 			},
@@ -293,42 +487,23 @@ func (p *Proxy) startContainer(ctx context.Context, id string) error {
 	return nil
 }
 
-// waitUntilReady waits for kamal-proxy to answer on its control socket, which
-// it opens only once it has restored its saved state. A container can start
-// and then exit straight away, so a successful start alone doesn't show that.
-func (p *Proxy) waitUntilReady(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, proxyReadyTimeout)
-	defer cancel()
-
-	for {
-		_, err := p.ExecOutput(ctx, []string{"kamal-proxy", "list"})
-		if err == nil {
-			return nil
-		}
-
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("waiting for proxy to start: %w", err)
-		case <-time.After(250 * time.Millisecond):
-		}
-	}
-}
-
-func (p *Proxy) removeContainer(ctx context.Context, id string) error {
-	if _, err := p.namespace.client.ContainerStop(ctx, id, client.ContainerStopOptions{}); err != nil && !errdefs.IsNotFound(err) {
+func (p *Proxy) stopContainer(ctx context.Context, id string) error {
+	if _, err := p.namespace.client.ContainerStop(ctx, id, client.ContainerStopOptions{}); err != nil {
 		return fmt.Errorf("stopping proxy container: %w", err)
-	}
-	if _, err := p.namespace.client.ContainerRemove(ctx, id, client.ContainerRemoveOptions{}); err != nil && !errdefs.IsNotFound(err) {
-		return fmt.Errorf("removing proxy container: %w", err)
 	}
 	return nil
 }
 
+func (p *Proxy) ensureStarted(ctx context.Context, info container.InspectResponse) error {
+	if info.State.Running {
+		return nil
+	}
+	return p.startContainer(ctx, info.ID)
+}
+
 func (p *Proxy) ensureRunning(ctx context.Context, info container.InspectResponse) error {
-	if !info.State.Running {
-		if err := p.startContainer(ctx, info.ID); err != nil {
-			return err
-		}
+	if err := p.ensureStarted(ctx, info); err != nil {
+		return err
 	}
 
 	label := info.Config.Labels[labelKey]

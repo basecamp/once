@@ -1,12 +1,58 @@
 package docker
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestProxyPullImageReportsErrorsInTheStream(t *testing.T) {
+	pullStream := func(lines ...string) *Proxy {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !strings.HasSuffix(r.URL.Path, "/images/create") {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			for _, line := range lines {
+				fmt.Fprintln(w, line)
+			}
+		}))
+		t.Cleanup(server.Close)
+
+		c, err := client.New(client.WithHost("tcp://"+strings.TrimPrefix(server.URL, "http://")), client.WithAPIVersion("1.47"))
+		require.NoError(t, err)
+		return NewProxy(&Namespace{name: "once", client: c})
+	}
+
+	t.Run("fails when the daemon reports an error after starting the pull", func(t *testing.T) {
+		proxy := pullStream(
+			`{"status":"Pulling from basecamp/kamal-proxy"}`,
+			`{"errorDetail":{"message":"manifest unknown"},"error":"manifest unknown"}`,
+		)
+
+		err := proxy.pullImage(context.Background())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "manifest unknown")
+	})
+
+	t.Run("succeeds when the stream has no error", func(t *testing.T) {
+		proxy := pullStream(
+			`{"status":"Pulling from basecamp/kamal-proxy"}`,
+			`{"status":"Status: Image is up to date"}`,
+		)
+
+		assert.NoError(t, proxy.pullImage(context.Background()))
+	})
+}
 
 func TestProxyContainerName(t *testing.T) {
 	ns := &Namespace{name: "once"}

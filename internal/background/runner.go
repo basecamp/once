@@ -30,6 +30,8 @@ func (r *Runner) Run(ctx context.Context) error {
 	scraper := userstats.NewScraper(r.namespace)
 	go scraper.Run(ctx)
 
+	r.upgradeProxy(ctx)
+
 	ticker := time.NewTicker(CheckInterval)
 	defer ticker.Stop()
 
@@ -79,6 +81,20 @@ func (r *Runner) check(ctx context.Context) (bool, error) {
 	}
 
 	return false, nil
+}
+
+// upgradeProxy runs at startup, so a proxy replacement interrupted by the
+// runner being stopped is recovered straight away rather than at the first
+// check.
+func (r *Runner) upgradeProxy(ctx context.Context) {
+	ns, err := docker.NewNamespace(r.namespace)
+	if err != nil {
+		slog.Error("Proxy upgrade failed", "error", err)
+		return
+	}
+	if err := ns.Proxy().Upgrade(ctx); err != nil {
+		slog.Error("Proxy upgrade failed", "error", err)
+	}
 }
 
 func (r *Runner) checkSelfUpdate(ctx context.Context, ns *docker.Namespace, state *docker.State) bool {
