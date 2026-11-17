@@ -47,8 +47,16 @@ func execInContainer(ctx context.Context, c *client.Client, containerName string
 	}
 	defer resp.Close()
 
+	// The Docker client doesn't close a hijacked connection when the context
+	// ends, so a command that never finishes would block here regardless.
+	stop := context.AfterFunc(ctx, resp.Close)
+	defer stop()
+
 	var stdout, stderr bytes.Buffer
 	if _, err := stdcopy.StdCopy(&stdout, &stderr, resp.Reader); err != nil {
+		if ctx.Err() != nil {
+			return ExecResult{}, fmt.Errorf("reading exec output: %w", context.Cause(ctx))
+		}
 		return ExecResult{}, fmt.Errorf("reading exec output: %w", err)
 	}
 
