@@ -63,16 +63,47 @@ func lockNamespace(ctx context.Context, namespace string) (func(), error) {
 // processes running as different users can share a file only one of them
 // owns. It avoids O_CREATE on an existing file, which protected_regular
 // refuses in sticky directories like /tmp when the file has another owner.
+//
+// Anyone can create files in /tmp, so it opens only a regular file: never
+// through a symlink, which could point a root process at another file, and
+// without blocking, which opening a FIFO would do before the lock's timeout
+// applies.
 func openLockFile(path string) (*os.File, error) {
-	for {
-		f, err := os.Open(path)
+	for range 10 {
+		f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+		if err == nil {
+			return checkLockFile(f)
+		}
 		if !errors.Is(err, fs.ErrNotExist) {
-			return f, err
+			return nil, err
 		}
 
 		f, err = os.OpenFile(path, os.O_RDONLY|os.O_CREATE|os.O_EXCL, 0o644)
-		if !errors.Is(err, fs.ErrExist) {
-			return f, err
+		if errors.Is(err, fs.ErrExist) {
+			continue
 		}
+		if err != nil {
+			return nil, err
+		}
+
+		// The umask may have narrowed the mode; other users need to open it.
+		if err := f.Chmod(0o644); err != nil {
+			f.Close()
+			return nil, err
+		}
+		return f, nil
 	}
+	return nil, fmt.Errorf("%s keeps appearing and disappearing", path)
+}
+
+func checkLockFile(f *os.File) (*os.File, error) {
+	info, err := f.Stat()
+	if err == nil && !info.Mode().IsRegular() {
+		err = fmt.Errorf("%s is not a regular file", f.Name())
+	}
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
 }

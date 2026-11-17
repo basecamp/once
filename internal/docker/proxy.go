@@ -45,7 +45,18 @@ const (
 	proxyRecoveryTimeout = 2 * time.Minute
 )
 
-var ErrProxyRoutesNotRestored = errors.New("new proxy did not restore the saved routes")
+var (
+	ErrProxyRoutesNotRestored = errors.New("new proxy did not restore the saved routes")
+
+	// ErrProxyNotReplaced wraps a failed replacement that left the previous
+	// proxy container in place and running.
+	ErrProxyNotReplaced = errors.New("proxy not replaced; the previous proxy is still in use")
+
+	// ErrProxyReplaceRolledBack wraps a failed replacement that had stopped the
+	// previous proxy before starting it again, so trying again costs another
+	// outage.
+	ErrProxyReplaceRolledBack = errors.New("new proxy failed and the previous one was restarted")
+)
 
 type ProxySettings struct {
 	HTTPPort    int `json:"httpPort"`
@@ -99,7 +110,12 @@ func (p *Proxy) Boot(ctx context.Context, settings ProxySettings) error {
 		if p.isCurrent(info.Container) {
 			return p.ensureRunning(ctx, info.Container)
 		}
-		return p.replace(ctx, info.Container)
+		err := p.replace(ctx, info.Container)
+		if errors.Is(err, ErrProxyNotReplaced) {
+			slog.Warn("Keeping the previous proxy", "error", err)
+			return p.ensureRunning(ctx, info.Container)
+		}
+		return err
 	}
 	if !errdefs.IsNotFound(err) {
 		return fmt.Errorf("inspecting proxy container: %w", err)
@@ -230,26 +246,33 @@ func (p *Proxy) lockedExec(ctx context.Context, cmd []string) error {
 // one fails. kamal-proxy's routes and certificates, and Once's own state file,
 // live on the proxy volume, which the new container mounts too; the new proxy
 // is accepted only once it has restored every route the old one had saved.
+//
+// A failure that leaves the old container in place and running wraps
+// ErrProxyNotReplaced.
 func (p *Proxy) replace(ctx context.Context, old container.InspectResponse) error {
+	notReplaced := func(err error) error {
+		return fmt.Errorf("%w: %w", ErrProxyNotReplaced, err)
+	}
+
 	settings, err := settingsFromConfig(old.Config)
 	if err != nil {
-		return err
+		return notReplaced(err)
 	}
 
 	routes, err := p.savedRoutes(ctx, old.ID)
 	if err != nil {
-		return err
+		return notReplaced(err)
 	}
 
 	slog.Info("Replacing proxy container", "from", old.Config.Image, "to", p.image)
 
 	if err := p.pullImage(ctx); err != nil {
-		return err
+		return notReplaced(err)
 	}
 
 	nextID, err := p.createContainer(ctx, p.nextContainerName(), p.image, settings)
 	if err != nil {
-		return err
+		return notReplaced(err)
 	}
 
 	err = p.stopContainer(ctx, old.ID)
@@ -261,7 +284,10 @@ func (p *Proxy) replace(ctx context.Context, old container.InspectResponse) erro
 	}
 	if err != nil {
 		slog.Error("New proxy container failed; restarting the previous one", "error", err)
-		return errors.Join(err, p.rollBack(ctx, nextID, old.ID))
+		if rollBackErr := p.rollBack(ctx, nextID, old.ID); rollBackErr != nil {
+			return errors.Join(err, rollBackErr)
+		}
+		return fmt.Errorf("%w: %w: %w", ErrProxyNotReplaced, ErrProxyReplaceRolledBack, err)
 	}
 
 	if err := p.promote(context.WithoutCancel(ctx), nextID, old.ID); err != nil {
@@ -303,8 +329,10 @@ func (p *Proxy) promote(ctx context.Context, nextID, oldID string) error {
 
 // recoverInterruptedReplace tidies up after a replace that didn't finish. If
 // the old container was already removed, the new one had restored its routes,
-// so it takes over the proxy name. Otherwise the new one is discarded and the
-// old one is started again.
+// so it takes over the proxy name, once it's running: renaming a container
+// that then fails to start would leave a stopped proxy that Upgrade considers
+// current. Otherwise the new one is discarded and the old one is started
+// again.
 func (p *Proxy) recoverInterruptedReplace(ctx context.Context) error {
 	next, err := p.namespace.client.ContainerInspect(ctx, p.nextContainerName(), client.ContainerInspectOptions{})
 	if errdefs.IsNotFound(err) {
@@ -317,10 +345,13 @@ func (p *Proxy) recoverInterruptedReplace(ctx context.Context) error {
 	current, err := p.namespace.client.ContainerInspect(ctx, p.containerName(), client.ContainerInspectOptions{})
 	if errdefs.IsNotFound(err) {
 		slog.Info("Completing interrupted proxy replacement")
+		if err := p.ensureStarted(ctx, next.Container); err != nil {
+			return err
+		}
 		if _, err := p.namespace.client.ContainerRename(ctx, next.Container.ID, client.ContainerRenameOptions{NewName: p.containerName()}); err != nil {
 			return fmt.Errorf("renaming new proxy container: %w", err)
 		}
-		return p.ensureStarted(ctx, next.Container)
+		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("inspecting proxy container: %w", err)

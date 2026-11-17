@@ -2,6 +2,7 @@ package background
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -16,6 +17,12 @@ const CheckInterval = 5 * time.Minute
 
 type Runner struct {
 	namespace string
+
+	// Set once a proxy replacement has failed after stopping the old proxy.
+	// Retrying on every check would take the apps offline every few minutes,
+	// so the runner waits until it's next restarted (by a self-update, or the
+	// host rebooting) to try again.
+	proxyUpgradeRolledBack bool
 }
 
 func NewRunner(namespace string) *Runner {
@@ -67,9 +74,7 @@ func (r *Runner) check(ctx context.Context) (bool, error) {
 		return true, nil
 	}
 
-	if err := ns.Proxy().Upgrade(ctx); err != nil {
-		slog.Error("Proxy upgrade failed", "error", err)
-	}
+	r.upgradeProxyIn(ctx, ns)
 
 	for _, app := range ns.Applications() {
 		if !app.Running {
@@ -92,8 +97,21 @@ func (r *Runner) upgradeProxy(ctx context.Context) {
 		slog.Error("Proxy upgrade failed", "error", err)
 		return
 	}
-	if err := ns.Proxy().Upgrade(ctx); err != nil {
+	r.upgradeProxyIn(ctx, ns)
+}
+
+func (r *Runner) upgradeProxyIn(ctx context.Context, ns *docker.Namespace) {
+	if r.proxyUpgradeRolledBack {
+		return
+	}
+
+	err := ns.Proxy().Upgrade(ctx)
+	if err != nil {
 		slog.Error("Proxy upgrade failed", "error", err)
+	}
+	if errors.Is(err, docker.ErrProxyReplaceRolledBack) {
+		slog.Warn("Not retrying the proxy upgrade until the background runner restarts")
+		r.proxyUpgradeRolledBack = true
 	}
 }
 
