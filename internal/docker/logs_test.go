@@ -3,6 +3,7 @@ package docker
 import (
 	"bytes"
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/moby/moby/api/types/container"
@@ -179,4 +180,82 @@ func TestLogStreamerScanLinesTTY(t *testing.T) {
 	assert.Equal(t, "line one", lines[0].Content)
 	assert.Equal(t, "line two", lines[1].Content)
 	assert.Equal(t, "line three", lines[2].Content)
+}
+
+func TestSanitizeLogLine(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"plain text", "GET /up 200", "GET /up 200"},
+		{"colour kept", "\x1b[1;32mok\x1b[0m done", "\x1b[1;32mok\x1b[0m done"},
+		{"truecolor with colons kept", "\x1b[38:2::10:20:30mx\x1b[m", "\x1b[38:2::10:20:30mx\x1b[m"},
+		{"hyperlink reduced to its text", "see \x1b]8;;https://example.com\x1b\\docs\x1b]8;;\x1b\\ here", "see docs here"},
+		{"hyperlink with BEL terminator", "\x1b]8;id=1;https://example.com\x07docs\x1b]8;;\x07", "docs"},
+		{"unterminated hyperlink", "a\x1b]8;;https://example.com", "a"},
+		{"clipboard write removed", "a\x1b]52;c;aGVsbG8=\x07b", "ab"},
+		{"window title removed", "\x1b]0;title\x07\x1b]2;title\x1b\\x", "x"},
+		{"clear screen and home removed", "\x1b[2J\x1b[Hx", "x"},
+		{"cursor moves removed", "a\x1b[5A\x1b[10;20Hb\x1b[3Cc\x1b7\x1b8", "abc"},
+		{"private and prefixed SGR-like removed", "\x1b[?1049h\x1b[>4;2m\x1b[?25lx", "x"},
+		{"other sequences removed", "\x1bPq#0\x1b\\\x1b_k\x1b\\\x1bc\x1b(Bx", "x"},
+		{"incomplete sequences removed", "a\x1b[1;2", "a"},
+		{"trailing escape removed", "a\x1b", "a"},
+		{"8-bit C1 removed", "a\x9b2Jb\x9d0;t\x9cc\x85d", "abcd"},
+		{"UTF-8 C1 removed", "a\u009b2Jb\u009d52;c;x\u009cc\u0085d", "a2Jb52;c;xcd"},
+		{"BEL and backspace removed", "a\x07b\x08c", "abc"},
+		{"other C0 and DEL removed", "a\x00b\rc\x0bd\x7fe", "abcde"},
+		{"tab kept", "a\tb", "a\tb"},
+		{"UTF-8 kept", "café 日本語 \U0001F600 \U0001F44D\U0001F3FD é", "café 日本語 \U0001F600 \U0001F44D\U0001F3FD é"},
+		{"forged mouse marker removed", "\x1b[0zclick\x1b[0z", "click"},
+		{"forged C1 mouse marker removed", "\x9b0za\u009b0z", "a0z"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, sanitizeLogLine(tt.in))
+		})
+	}
+}
+
+func TestSanitizeLogLineLeavesOnlySGR(t *testing.T) {
+	var all strings.Builder
+	for b := range 256 {
+		all.WriteByte(byte(b))
+		all.WriteString("\x1b")
+		all.WriteByte(byte(b))
+		all.WriteString("\x1b[1")
+		all.WriteByte(byte(b))
+	}
+
+	out := sanitizeLogLine(all.String())
+	for i := 0; i < len(out); i++ {
+		if out[i] == 0x1b {
+			end := strings.IndexByte(out[i:], 'm')
+			require.NotEqual(t, -1, end)
+			assert.True(t, isSGR(out[i:i+end+1]), "%q", out[i:i+end+1])
+			i += end
+			continue
+		}
+		assert.False(t, out[i] < 0x20 && out[i] != '\t' || out[i] == 0x7f, "control byte %#x at %d", out[i], i)
+	}
+	for _, r := range out {
+		assert.False(t, r >= 0x80 && r <= 0x9f, "C1 rune %U", r)
+	}
+}
+
+func TestLogStreamerSanitizesLines(t *testing.T) {
+	client := &mockLogsClient{
+		logs:  "\x1b[31mred\x1b[0m\n\x1b]0;title\x07plain\n",
+		isTTY: true,
+	}
+
+	s := newTestLogStreamer(client, 10)
+	s.streamLogs(context.Background(), "test-container")
+
+	lines := s.Fetch(10)
+	require.Len(t, lines, 2)
+	assert.Equal(t, "\x1b[31mred\x1b[0m", lines[0].Content)
+	assert.Equal(t, "plain", lines[1].Content)
 }
